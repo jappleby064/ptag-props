@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>People's Theatre — Props &amp; Costume Inventory</title>
   <link rel="stylesheet" href="public/css/styles.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/bcryptjs/2.4.3/bcrypt.min.js" integrity="sha512-V7/JKNPWqM6enxnMTa6bpgiM7fKz5fIzLSfVans9MycOg58+PaKIIhGiExzu0BQwWmBWzHRqpkz9d+qGf2MIQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <style>
     .server-badge { display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 9px;border-radius:12px;border:1px solid var(--border);color:var(--text-dim);white-space:nowrap; }
     .server-badge.connected { border-color:#1e8449;color:#1e8449;background:rgba(30,132,73,.08); }
@@ -58,7 +59,7 @@ let _dbt;
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 function getGhToken() { return localStorage.getItem('ptag_gh_token'); }
-function isAdmin()    { return !!getGhToken(); }
+function isAdmin()    { return localStorage.getItem('ptag_authed') === '1' && !!getGhToken(); }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 function escHtml(s){ if(!s)return''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -233,7 +234,7 @@ async function setupHeader(){
 }
 
 function doLogout(){
-  localStorage.removeItem('ptag_gh_token');
+  localStorage.removeItem('ptag_authed');
   localStorage.removeItem('ptag_user');
   setupHeader(); loadItems();
 }
@@ -247,7 +248,7 @@ function refreshReportBadge(){
   else badge.classList.add('hidden');
 }
 
-// ─── Login (GitHub PAT) ───────────────────────────────────────────────────────
+// ─── Login (username + password) ─────────────────────────────────────────────
 function openLoginModal(){
   document.getElementById('login-modal-backdrop')?.remove();
   const el=document.createElement('div');el.id='login-modal-backdrop';el.className='modal-backdrop';
@@ -258,20 +259,15 @@ function openLoginModal(){
         <button class="modal-close" onclick="closeModal('login-modal-backdrop')">×</button>
       </div>
       <div class="modal-body">
-        <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px">
-          Admin access uses a <strong>GitHub Personal Access Token</strong> to write directly to the repository.
-          Generate one at <code>github.com → Settings → Developer settings → Fine-grained tokens</code>
-          with <em>Contents: Read &amp; Write</em> on this repo. Your token is stored in this browser only.
-        </p>
         <form id="login-form" onsubmit="submitLogin(event)" class="login-form">
           <div class="login-error" id="login-error"></div>
           <div class="form-field">
-            <label>Display name</label>
-            <input type="text" name="username" placeholder="Your name (shown in header)" value="${escHtml(localStorage.getItem('ptag_user')||'')}">
+            <label>Username</label>
+            <input type="text" name="username" autocomplete="username" required>
           </div>
           <div class="form-field">
-            <label>GitHub Personal Access Token</label>
-            <input type="password" name="token" placeholder="github_pat_…" required autocomplete="off">
+            <label>Password</label>
+            <input type="password" name="password" autocomplete="current-password" required>
           </div>
           <button type="submit" class="btn btn-copper btn-lg" id="login-btn" style="width:100%">Sign In</button>
         </form>
@@ -286,21 +282,69 @@ async function submitLogin(e){
   const form=e.target,btn=document.getElementById('login-btn'),err=document.getElementById('login-error');
   btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Verifying…';
   err.classList.remove('show');err.textContent='';
-  const token=form.elements.token.value.trim();
-  const username=form.elements.username.value.trim()||'Admin';
+  const username=form.elements.username.value.trim();
+  const password=form.elements.password.value;
   try{
-    // Verify token against GitHub API
-    const r=await fetch(`${GH_API}/repos/${REPO}`,{headers:{Authorization:`Bearer ${token}`,'X-GitHub-Api-Version':'2022-11-28'}});
-    if(!r.ok) throw new Error('Token invalid or no access to this repository.');
-    localStorage.setItem('ptag_gh_token',token);
-    localStorage.setItem('ptag_user',username);
+    const db=await loadDb();
+    const admin=db.admins.find(a=>a.username===username);
+    if(!admin) throw new Error('Invalid username or password.');
+    const valid=await bcrypt.compare(password, admin.password_hash);
+    if(!valid) throw new Error('Invalid username or password.');
+    localStorage.setItem('ptag_authed','1');
+    localStorage.setItem('ptag_user', username);
     closeModal('login-modal-backdrop');
+    // If no GitHub PAT stored yet, prompt for it once
+    if(!getGhToken()){ showPatSetupModal(); return; }
     setupHeader(); loadItems();
     toast(`Welcome, ${username}`);
   } catch(e2){
     err.textContent=e2.message;err.classList.add('show');
     btn.disabled=false;btn.innerHTML='Sign In';
   }
+}
+
+function showPatSetupModal(){
+  document.getElementById('pat-setup-backdrop')?.remove();
+  const el=document.createElement('div');el.id='pat-setup-backdrop';el.className='modal-backdrop';
+  el.innerHTML=`
+    <div class="modal modal--narrow">
+      <div class="modal-header">
+        <div class="modal-title">One-time Setup</div>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom:10px;font-weight:600">Almost there — one last step.</p>
+        <p style="font-size:12px;color:var(--text-dim);margin-bottom:16px">
+          To save changes from this browser, a <strong>GitHub Personal Access Token</strong> is needed once per device.
+          It's stored locally and never sent anywhere except GitHub.<br><br>
+          Generate at <code>github.com → Settings → Developer settings →
+          Fine-grained tokens</code> → select <code>${REPO}</code> →
+          <em>Repository permissions → Contents: Read &amp; Write</em>.
+        </p>
+        <div class="login-error" id="pat-error"></div>
+        <div class="form-field" style="margin-bottom:14px">
+          <label>GitHub Personal Access Token</label>
+          <input type="password" id="pat-input" placeholder="github_pat_…" autocomplete="off">
+        </div>
+        <button class="btn btn-copper btn-lg" style="width:100%" onclick="savePatFromSetup()">Save &amp; Continue</button>
+      </div>
+    </div>`;
+  document.body.appendChild(el);
+  document.getElementById('pat-input').focus();
+}
+
+async function savePatFromSetup(){
+  const val=document.getElementById('pat-input')?.value.trim();
+  const err=document.getElementById('pat-error');
+  if(!val){ err.textContent='Please enter your token.';err.classList.add('show');return; }
+  err.classList.remove('show');
+  try{
+    const r=await fetch(`${GH_API}/repos/${REPO}`,{headers:{Authorization:`Bearer ${val}`,'X-GitHub-Api-Version':'2022-11-28'}});
+    if(!r.ok) throw new Error('Token invalid or no Contents access to this repository.');
+    localStorage.setItem('ptag_gh_token',val);
+    closeModal('pat-setup-backdrop');
+    setupHeader(); loadItems();
+    toast(`Welcome, ${localStorage.getItem('ptag_user')||'Admin'}`);
+  }catch(e){err.textContent=e.message;err.classList.add('show');}
 }
 
 // ─── Filters + grid ──────────────────────────────────────────────────────────
@@ -753,26 +797,29 @@ function loadSettingsTab(tab,tabEl){
 }
 
 function renderTokenTab(content){
+  const hasToken=!!getGhToken();
   content.innerHTML=`<div class="settings-section">
     <h3 class="settings-section-title">🔑 GitHub Access Token</h3>
     <p class="text-dim" style="margin-bottom:14px">
-      Your token is stored in this browser's localStorage. To update it, paste a new one below.
-      Generate at <code>github.com → Settings → Developer settings → Fine-grained tokens</code>
-      with <em>Contents: Read &amp; Write</em> on <code>${REPO}</code>.
+      Your username and password are verified against the inventory database.
+      A GitHub token (stored in this browser only) is also required to save changes to the repository.
+      Token status: <strong style="color:${hasToken?'var(--green)':'var(--red)'}">${hasToken?'Stored ✓':'Not set'}</strong>
     </p>
     <div class="settings-add-row" style="margin-bottom:10px">
-      <input type="password" id="token-input" class="settings-input" placeholder="github_pat_… (leave blank to keep current)" autocomplete="off">
+      <input type="password" id="token-input" class="settings-input" placeholder="Paste new github_pat_… to replace" autocomplete="off">
       <button class="btn btn-copper btn-sm" onclick="saveToken()">Update</button>
     </div>
-    <div style="margin-top:16px">
-      <button class="btn btn-danger btn-sm" onclick="doLogout()">Sign out &amp; clear token</button>
-    </div>
+    <p class="text-dim" style="font-size:11px;margin-bottom:16px">
+      Generate at <code>github.com → Settings → Developer settings → Fine-grained tokens</code>
+      → select <code>${REPO}</code> → Contents: Read &amp; Write.
+    </p>
+    <button class="btn btn-danger btn-sm" onclick="doLogout()">Sign out</button>
   </div>`;
 }
 
 function saveToken(){
   const val=document.getElementById('token-input')?.value.trim();
-  if(val){ localStorage.setItem('ptag_gh_token',val); toast('Token updated'); setupHeader(); }
+  if(val){ localStorage.setItem('ptag_gh_token',val); toast('Token updated'); renderTokenTab(document.getElementById('settings-content')); }
 }
 
 function renderCategoriesTab(content){
