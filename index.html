@@ -29,14 +29,14 @@
 <main class="main">
   <div class="controls">
     <div class="search-wrap">
-      <span class="search-icon">🔍</span>
+      <span class="search-icon"><svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="6.2" cy="6.2" r="4.2"/><line x1="9.5" y1="9.5" x2="14" y2="14"/></svg></span>
       <input type="search" id="search-input" placeholder="Search by name, ID, location…">
     </div>
     <div class="filter-tabs">
       <button class="filter-tab active" data-type="all">All</button>
-      <button class="filter-tab" data-type="prop">🎭 Props</button>
-      <button class="filter-tab" data-type="furniture">🪑 Furniture</button>
-      <button class="filter-tab" data-type="costume">👗 Costumes</button>
+      <button class="filter-tab" data-type="prop">Props</button>
+      <button class="filter-tab" data-type="furniture">Furniture</button>
+      <button class="filter-tab" data-type="costume">Costumes</button>
     </div>
     <span class="result-count" id="result-count"></span>
   </div>
@@ -48,7 +48,15 @@
 <script>
 // ─── Config ───────────────────────────────────────────────────────────────────
 const WORKER    = 'https://ptag-props.jappleby064.workers.dev';
-const TYPE_ICONS = { prop:'🎭', furniture:'🪑', costume:'👗' };
+const IC = {
+  edit:  `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 1.5l3 3L3 12H0V9L7.5 1.5z"/></svg>`,
+  trash: `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h10M4 3V1.5h4V3M2.5 3l.5 7.5h6l.5-7.5"/></svg>`,
+  check: `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1,6.5 4.5,10 11,2"/></svg>`,
+  img:   `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg>`,
+  warn:  `<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.25"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+  noimg: `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="3" x2="21" y2="21"/></svg>`,
+  upload:`<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.4"><polyline points="16,16 12,12 8,16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>`,
+};
 window.APP_STATE = { categories:{ prop:[], furniture:[], costume:[] }, storageAreas:[] };
 
 let _db     = null;
@@ -204,9 +212,9 @@ async function setupHeader(){
     slot.innerHTML=`
       <span class="server-badge connected"><span class="server-status-dot"></span>Admin</span>
       <button class="btn btn-outline btn-sm" onclick="openAddModal()">+ Add Item</button>
-      <button class="btn btn-outline btn-sm" id="dashboard-btn" onclick="openDashboard()">📋 Dashboard <span id="report-badge" class="report-badge hidden">0</span></button>
-      <button class="btn btn-outline btn-sm" onclick="openSettings()">⚙️ Settings</button>
-      <span class="header-user">👤 ${escHtml(user)}</span>
+      <button class="btn btn-outline btn-sm" id="dashboard-btn" onclick="openDashboard()">Dashboard <span id="report-badge" class="report-badge hidden">0</span></button>
+      <button class="btn btn-outline btn-sm" onclick="openSettings()">Settings</button>
+      <span class="header-user">${escHtml(user)}</span>
       <button class="btn btn-outline btn-sm" onclick="doLogout()">Sign out</button>`;
     refreshReportBadge();
   } else {
@@ -303,29 +311,29 @@ async function loadItems(){
       items=items.filter(i=>[i.name,i.asset_id,i.storage_area,i.item_category].some(v=>v&&v.toLowerCase().includes(q)));
     }
     document.getElementById('result-count').textContent=`${items.length} item${items.length!==1?'s':''}`;
-    if(!items.length){grid.innerHTML=`<div class="empty"><div class="empty-icon">🔍</div><h3>No items found</h3><p>Try adjusting your search or filters.</p></div>`;return;}
+    if(!items.length){grid.innerHTML=`<div class="empty"><div class="empty-icon">${IC.img}</div><h3>No items found</h3><p>Try adjusting your search or filters.</p></div>`;return;}
     grid.innerHTML=items.map(i=>renderCard(i)).join('');
-  }catch(err){grid.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><h3>Failed to load</h3><p>${escHtml(err.message)}</p></div>`;}
+  }catch(err){grid.innerHTML=`<div class="empty"><div class="empty-icon">${IC.warn}</div><h3>Failed to load</h3><p>${escHtml(err.message)}</p></div>`;}
 }
 
 // ─── Cards ────────────────────────────────────────────────────────────────────
 function renderCard(item){
   const img=primaryImage(item.images),flags=item.flags||{};
-  const flagHtml=(flags.missing||flags.broken)?`<div class="card-flag-badges">${flags.missing?'<span class="card-flag card-flag--missing">🔍 Missing</span>':''}${flags.broken?'<span class="card-flag card-flag--broken">🔧 Broken</span>':''}</div>`:'';
+  const flagHtml=(flags.missing||flags.broken)?`<div class="card-flag-badges">${flags.missing?'<span class="card-flag card-flag--missing">Missing</span>':''}${flags.broken?'<span class="card-flag card-flag--broken">Broken</span>':''}</div>`:'';
   const imgHtml=img
     ?`<div class="card-image" style="position:relative"><img src="${imageUrl(img.filename)}" alt="${escHtml(item.name)}" loading="lazy">${flagHtml}</div>`
-    :`<div class="card-image card-image--empty" style="position:relative">${TYPE_ICONS[item.type]||'📦'}${flagHtml}</div>`;
-  const adminActions=isAdmin()?`<div class="card-admin-actions" onclick="event.stopPropagation()"><button class="btn btn-outline btn-xs" onclick="openEditModal(${item.id})">✏️ Edit</button><button class="btn btn-danger btn-xs" onclick="confirmDelete(${item.id},'${escHtml(item.name)}')">🗑️</button></div>`:'';
+    :`<div class="card-image card-image--empty" style="position:relative">${IC.img}${flagHtml}</div>`;
+  const adminActions=isAdmin()?`<div class="card-admin-actions" onclick="event.stopPropagation()"><button class="btn btn-outline btn-xs" onclick="openEditModal(${item.id})">${IC.edit} Edit</button><button class="btn btn-danger btn-xs icon-only" onclick="confirmDelete(${item.id},'${escHtml(item.name)}')">${IC.trash}</button></div>`:'';
   return`<div class="card" onclick="openDetailModal(${item.id})" data-id="${item.id}">${imgHtml}
     <div class="card-body">
       <div class="card-asset-id">${item.asset_id}</div>
       <div class="card-name">${escHtml(item.name)}</div>
       <div class="card-meta">${typeChip(item.type)} ${categoryChip(item.item_category)}</div>
-      ${item.storage_area?`<div class="card-location">📍 ${escHtml(item.storage_area)}${item.storage_location?' · '+escHtml(item.storage_location):''}</div>`:''}
+      ${item.storage_area?`<div class="card-location">${escHtml(item.storage_area)}${item.storage_location?' · '+escHtml(item.storage_location):''}</div>`:''}
     </div>
     <div class="card-report-bar" onclick="event.stopPropagation()">
-      <button class="btn-report" onclick="openReportModal(${item.id},'${escHtml(item.name)}','missing')">🔍 Report Missing</button>
-      <button class="btn-report btn-report--broken" onclick="openReportModal(${item.id},'${escHtml(item.name)}','broken')">🔧 Report Broken</button>
+      <button class="btn-report" onclick="openReportModal(${item.id},'${escHtml(item.name)}','missing')">Report Missing</button>
+      <button class="btn-report btn-report--broken" onclick="openReportModal(${item.id},'${escHtml(item.name)}','broken')">Report Broken</button>
     </div>${adminActions}</div>`;
 }
 
@@ -340,14 +348,14 @@ function showDetailModal(item){
         <img src="${imageUrl(img.filename)}" alt="" onclick="openLightbox(${JSON.stringify(item.images).replace(/"/g,'&quot;')},${idx})">
         ${isAdmin()?`<div class="gallery-item-actions">
           ${!img.is_primary?`<button class="btn btn-sm btn-outline" onclick="setImgPrimary(${item.id},${img.id})">★</button>`:''}
-          <button class="btn btn-sm btn-danger" onclick="removeImg(${item.id},${img.id},'${escHtml(img.filename)}')">🗑️</button>
+          <button class="btn btn-sm btn-danger icon-only" onclick="removeImg(${item.id},${img.id},'${escHtml(img.filename)}')">${IC.trash}</button>
         </div>`:''}
       </div>`).join('')
-    :`<div class="no-image-placeholder"><span>📷</span>No images uploaded</div>`;
+    :`<div class="no-image-placeholder">${IC.noimg}<span>No images uploaded</span></div>`;
 
   const adminBtns=isAdmin()?`
-    <button class="btn btn-copper" onclick="openEditModal(${item.id});closeModal('detail-modal-backdrop')">✏️ Edit</button>
-    <button class="btn btn-danger"  onclick="confirmDelete(${item.id},'${escHtml(item.name)}');closeModal('detail-modal-backdrop')">🗑️ Delete</button>`:'';
+    <button class="btn btn-copper" onclick="openEditModal(${item.id});closeModal('detail-modal-backdrop')">${IC.edit} Edit</button>
+    <button class="btn btn-danger"  onclick="confirmDelete(${item.id},'${escHtml(item.name)}');closeModal('detail-modal-backdrop')">${IC.trash} Delete</button>`:'';
 
   const el=document.createElement('div');el.id='detail-modal-backdrop';el.className='modal-backdrop';
   el.innerHTML=`<div class="modal">
@@ -368,8 +376,8 @@ function showDetailModal(item){
       </div>
       <div class="form-actions" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
         <div style="display:flex;gap:8px">
-          <button class="btn btn-report-detail" onclick="openReportModal(${item.id},'${escHtml(item.name)}','missing')">🔍 Report Missing</button>
-          <button class="btn btn-report-detail btn-report-detail--broken" onclick="openReportModal(${item.id},'${escHtml(item.name)}','broken')">🔧 Report Broken</button>
+          <button class="btn btn-report-detail" onclick="openReportModal(${item.id},'${escHtml(item.name)}','missing')">Report Missing</button>
+          <button class="btn btn-report-detail btn-report-detail--broken" onclick="openReportModal(${item.id},'${escHtml(item.name)}','broken')">Report Broken</button>
         </div>
         ${isAdmin()?`<div style="display:flex;gap:8px">${adminBtns}</div>`:''}
       </div>
@@ -463,7 +471,7 @@ function showItemForm(item=null){
             <div class="upload-zone" onclick="document.getElementById('file-input').click()"
                  ondragover="event.preventDefault();this.classList.add('drag')"
                  ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event)">
-              <span class="upload-zone-icon">📷</span>
+              <span class="upload-zone-icon">${IC.upload}</span>
               Click or drag images here (JPEG, PNG · max 20 MB each — compressed automatically)
               <input type="file" id="file-input" accept="image/*" multiple onchange="handleFiles(this.files)">
             </div>
@@ -472,7 +480,7 @@ function showItemForm(item=null){
         </div>
         <div class="form-actions">
           <button type="button" class="btn btn-outline" onclick="closeModal('form-modal-backdrop')">Cancel</button>
-          <button type="submit" class="btn btn-copper" id="submit-btn">${isEdit?'💾 Save Changes':'➕ Add Item'}</button>
+          <button type="submit" class="btn btn-copper" id="submit-btn">${isEdit?'Save Changes':'Add Item'}</button>
         </div>
       </form>
     </div>
@@ -548,7 +556,7 @@ async function submitItemForm(e,editId){
     closeModal('form-modal-backdrop');
     loadItems();
   }catch(err){
-    toast(err.message,true);btn.disabled=false;btn.innerHTML=editId?'💾 Save Changes':'➕ Add Item';
+    toast(err.message,true);btn.disabled=false;btn.innerHTML=editId?'Save Changes':'Add Item';
   }
 }
 
@@ -582,8 +590,8 @@ function openReportModal(itemId,itemName,preselect='missing'){
       ${!isAdmin()?'<p style="font-size:12px;color:var(--text-dim);margin-bottom:12px">Reports are saved directly to the inventory. You do not need to log in.</p>':''}
       <form id="report-form" onsubmit="submitReportForm(event,${itemId},'${escHtml(itemName)}')">
         <div class="report-type-toggle">
-          <label class="report-type-btn${preselect==='missing'?' active':''}"><input type="radio" name="type" value="missing" ${preselect==='missing'?'checked':''}><span>🔍 Missing</span></label>
-          <label class="report-type-btn${preselect==='broken'?' active':''}"><input type="radio" name="type" value="broken" ${preselect==='broken'?'checked':''}><span>🔧 Broken / Damaged</span></label>
+          <label class="report-type-btn${preselect==='missing'?' active':''}"><input type="radio" name="type" value="missing" ${preselect==='missing'?'checked':''}><span>Missing</span></label>
+          <label class="report-type-btn${preselect==='broken'?' active':''}"><input type="radio" name="type" value="broken" ${preselect==='broken'?'checked':''}><span>Broken / Damaged</span></label>
         </div>
         <div class="form-field" style="margin-top:16px">
           <label>Additional notes <span style="color:var(--text-dim)">(optional)</span></label>
@@ -635,7 +643,7 @@ function openDashboard(){
   document.getElementById('dashboard-modal-backdrop')?.remove();
   const el=document.createElement('div');el.id='dashboard-modal-backdrop';el.className='modal-backdrop';
   el.innerHTML=`<div class="modal modal--wide">
-    <div class="modal-header"><div class="modal-title">📋 Dashboard — Issue Reports</div><button class="modal-close" onclick="closeModal('dashboard-modal-backdrop')">×</button></div>
+    <div class="modal-header"><div class="modal-title">Issue Reports</div><button class="modal-close" onclick="closeModal('dashboard-modal-backdrop')">×</button></div>
     <div class="modal-body">
       <div class="dash-tabs">
         <button class="dash-tab active" onclick="loadDashTab('open',this)">Open</button>
@@ -658,19 +666,19 @@ function loadDashTab(status,tabEl){
   if(status==='open')     reports=reports.filter(r=>!r.resolved);
   else if(status==='resolved') reports=reports.filter(r=>r.resolved);
   reports.sort((a,b)=>new Date(b.reported_at)-new Date(a.reported_at));
-  if(!reports.length){content.innerHTML=`<div class="empty" style="padding:40px 0"><div class="empty-icon">${status==='open'?'✅':'📭'}</div><h3>${status==='open'?'No open reports':'No reports yet'}</h3></div>`;return;}
+  if(!reports.length){content.innerHTML=`<div class="empty" style="padding:40px 0"><div class="empty-icon">${IC.check}</div><h3>${status==='open'?'No open reports':'No reports yet'}</h3></div>`;return;}
   const open=reports.filter(r=>!r.resolved);
   const summary=status==='open'?`<div class="dash-summary">
-    <div class="dash-summary-stat"><span class="dash-stat-num">${open.filter(r=>r.type==='missing').length}</span><span class="dash-stat-label">🔍 Missing</span></div>
-    <div class="dash-summary-stat"><span class="dash-stat-num">${open.filter(r=>r.type==='broken').length}</span><span class="dash-stat-label">🔧 Broken</span></div>
+    <div class="dash-summary-stat"><span class="dash-stat-num">${open.filter(r=>r.type==='missing').length}</span><span class="dash-stat-label">Missing</span></div>
+    <div class="dash-summary-stat"><span class="dash-stat-num">${open.filter(r=>r.type==='broken').length}</span><span class="dash-stat-label">Broken</span></div>
   </div>`:'';
   content.innerHTML=summary+`<div class="report-list">${reports.map(r=>renderReport(r)).join('')}</div>`;
 }
 
 function renderReport(r){
-  const badge=r.type==='missing'?`<span class="report-badge-type missing">🔍 Missing</span>`:`<span class="report-badge-type broken">🔧 Broken</span>`;
-  const resolved=r.resolved?`<div class="report-resolved-info">✅ Resolved ${fmtDate(r.resolved_at)} by <strong>${escHtml(r.resolved_by)}</strong>${r.resolve_note?`<br><em>${escHtml(r.resolve_note)}</em>`:''}</div>`:'';
-  const actions=!r.resolved?`<div class="report-actions"><button class="btn btn-sm btn-copper" onclick="doResolveReport(${r.id})">✅ Resolve</button><button class="btn btn-sm btn-danger" onclick="doDeleteReport(${r.id})">🗑️</button></div>`:`<div class="report-actions"><button class="btn btn-sm btn-outline" onclick="doDeleteReport(${r.id})">🗑️ Remove</button></div>`;
+  const badge=r.type==='missing'?`<span class="report-badge-type missing">Missing</span>`:`<span class="report-badge-type broken">Broken</span>`;
+  const resolved=r.resolved?`<div class="report-resolved-info">Resolved ${fmtDate(r.resolved_at)} by <strong>${escHtml(r.resolved_by)}</strong>${r.resolve_note?`<br><em>${escHtml(r.resolve_note)}</em>`:''}</div>`:'';
+  const actions=!r.resolved?`<div class="report-actions"><button class="btn btn-sm btn-copper" onclick="doResolveReport(${r.id})">${IC.check} Resolve</button><button class="btn btn-sm btn-danger icon-only" onclick="doDeleteReport(${r.id})">${IC.trash}</button></div>`:`<div class="report-actions"><button class="btn btn-sm btn-outline icon-only" onclick="doDeleteReport(${r.id})">${IC.trash}</button></div>`;
   return`<div class="report-card${r.resolved?' report-card--resolved':''}" id="report-${r.id}">
     <div class="report-card-header">${badge}<strong class="report-item-link" onclick="openDetailModal(${r.item_id})">${escHtml(r.item_asset_id)} — ${escHtml(r.item_name)}</strong><span class="report-date">${fmtDate(r.reported_at)}</span></div>
     ${r.note?`<div class="report-note">"${escHtml(r.note)}"</div>`:''}${resolved}${actions}</div>`;
@@ -699,12 +707,12 @@ function openSettings(){
   document.getElementById('settings-modal-backdrop')?.remove();
   const el=document.createElement('div');el.id='settings-modal-backdrop';el.className='modal-backdrop';
   el.innerHTML=`<div class="modal modal--wide">
-    <div class="modal-header"><div class="modal-title">⚙️ Settings</div><button class="modal-close" onclick="closeModal('settings-modal-backdrop')">×</button></div>
+    <div class="modal-header"><div class="modal-title">Settings</div><button class="modal-close" onclick="closeModal('settings-modal-backdrop')">×</button></div>
     <div class="modal-body">
       <div class="dash-tabs">
         <button class="dash-tab active" onclick="loadSettingsTab('categories',this)">Categories</button>
         <button class="dash-tab" onclick="loadSettingsTab('storage',this)">Storage Areas</button>
-        <button class="dash-tab" onclick="loadSettingsTab('token',this)">🔑 Access Token</button>
+        <button class="dash-tab" onclick="loadSettingsTab('token',this)">Session</button>
       </div>
       <div id="settings-content" class="dash-content"></div>
     </div>
@@ -726,7 +734,7 @@ function loadSettingsTab(tab,tabEl){
 function renderTokenTab(content){
   const user=localStorage.getItem('ptag_user')||'Admin';
   content.innerHTML=`<div class="settings-section">
-    <h3 class="settings-section-title">🔑 Session</h3>
+    <h3 class="settings-section-title">Session</h3>
     <p class="text-dim" style="margin-bottom:14px">
       Signed in as <strong>${user}</strong>. Authentication is handled securely via the PTAG server — no tokens are stored in this browser.
     </p>
@@ -736,7 +744,7 @@ function renderTokenTab(content){
 
 function renderCategoriesTab(content){
   const cats=APP_STATE.categories;
-  const types=[{key:'prop',label:'🎭 Props'},{key:'furniture',label:'🪑 Furniture'},{key:'costume',label:'👗 Costumes'}];
+  const types=[{key:'prop',label:'Props'},{key:'furniture',label:'Furniture'},{key:'costume',label:'Costumes'}];
   content.innerHTML=types.map(({key,label})=>`
     <div class="settings-section">
       <h3 class="settings-section-title">${label}</h3>
@@ -751,15 +759,15 @@ function renderCategoriesTab(content){
     </div>`).join('<div class="section-divider"></div>');
 }
 
-function renderCatRow(type,name){ return`<div class="settings-row" id="cat-row-${type}-${escId(name)}"><span class="settings-row-label">${escHtml(name)}</span><div class="settings-row-actions"><button class="btn btn-xs btn-outline" onclick="startRenameCat('${type}','${escHtml(name)}')">✏️</button><button class="btn btn-xs btn-danger" onclick="deleteCat('${type}','${escHtml(name)}')">🗑️</button></div></div>`; }
-function renderStorageRow(name){ return`<div class="settings-row" id="area-row-${escId(name)}"><span class="settings-row-label">${escHtml(name)}</span><div class="settings-row-actions"><button class="btn btn-xs btn-outline" onclick="startRenameArea('${escHtml(name)}')">✏️</button><button class="btn btn-xs btn-danger" onclick="deleteArea('${escHtml(name)}')">🗑️</button></div></div>`; }
+function renderCatRow(type,name){ return`<div class="settings-row" id="cat-row-${type}-${escId(name)}"><span class="settings-row-label">${escHtml(name)}</span><div class="settings-row-actions"><button class="btn btn-xs btn-outline icon-only" onclick="startRenameCat('${type}','${escHtml(name)}')">${IC.edit}</button><button class="btn btn-xs btn-danger icon-only" onclick="deleteCat('${type}','${escHtml(name)}')">${IC.trash}</button></div></div>`; }
+function renderStorageRow(name){ return`<div class="settings-row" id="area-row-${escId(name)}"><span class="settings-row-label">${escHtml(name)}</span><div class="settings-row-actions"><button class="btn btn-xs btn-outline icon-only" onclick="startRenameArea('${escHtml(name)}')">${IC.edit}</button><button class="btn btn-xs btn-danger icon-only" onclick="deleteArea('${escHtml(name)}')">${IC.trash}</button></div></div>`; }
 
 async function addCat(type){ const i=document.getElementById(`cat-input-${type}`),name=i.value.trim();if(!name)return;const db=JSON.parse(JSON.stringify(_db));if(!(db.categories[type]=db.categories[type]||[]).includes(name)){db.categories[type].push(name);}try{await pushDb(db,`Add category: ${name}`);APP_STATE.categories=db.categories;i.value='';renderCategoriesTab(document.getElementById('settings-content'));toast(`Category "${name}" added`);}catch(e){toast(e.message,true);} }
 async function deleteCat(type,name){ if(!confirm(`Delete category "${name}"?`))return;const db=JSON.parse(JSON.stringify(_db));db.categories[type]=(db.categories[type]||[]).filter(c=>c!==name);try{await pushDb(db,`Delete category: ${name}`);APP_STATE.categories=db.categories;document.getElementById(`cat-row-${type}-${escId(name)}`)?.remove();toast('Category deleted');}catch(e){toast(e.message,true);} }
 function startRenameCat(type,name){ const row=document.getElementById(`cat-row-${type}-${escId(name)}`);if(!row)return;row.innerHTML=`<input type="text" value="${escHtml(name)}" class="settings-input" id="ri-${escId(name)}" style="flex:1" onkeydown="if(event.key==='Enter'){commitRenameCat('${type}','${escHtml(name)}');}"><div class="settings-row-actions"><button class="btn btn-xs btn-copper" onclick="commitRenameCat('${type}','${escHtml(name)}')">Save</button><button class="btn btn-xs btn-outline" onclick="renderCategoriesTab(document.getElementById('settings-content'))">Cancel</button></div>`;document.getElementById(`ri-${escId(name)}`)?.focus(); }
 async function commitRenameCat(type,old){ const i=document.getElementById(`ri-${escId(old)}`),nw=i?.value.trim();if(!nw||nw===old){renderCategoriesTab(document.getElementById('settings-content'));return;}const db=JSON.parse(JSON.stringify(_db));db.categories[type]=(db.categories[type]||[]).map(c=>c===old?nw:c);try{await pushDb(db,`Rename category: ${old} → ${nw}`);APP_STATE.categories=db.categories;renderCategoriesTab(document.getElementById('settings-content'));toast(`Renamed to "${nw}"`);}catch(e){toast(e.message,true);} }
 
-function renderStorageTab(content){ const areas=APP_STATE.storageAreas;content.innerHTML=`<div class="settings-section"><h3 class="settings-section-title">📍 Storage Areas</h3><p class="text-dim" style="margin-bottom:12px">These appear as a dropdown when adding or editing items.</p><div class="settings-list" id="storage-list">${areas.map(a=>renderStorageRow(a)).join('')||'<p class="text-dim">No storage areas defined yet.</p>'}</div><div class="settings-add-row"><input type="text" id="storage-input" placeholder="New storage area…" class="settings-input" onkeydown="if(event.key==='Enter'){event.preventDefault();addArea();}"><button class="btn btn-copper btn-sm" onclick="addArea()">+ Add</button></div></div>`; }
+function renderStorageTab(content){ const areas=APP_STATE.storageAreas;content.innerHTML=`<div class="settings-section"><h3 class="settings-section-title">Storage Areas</h3><p class="text-dim" style="margin-bottom:12px">These appear as a dropdown when adding or editing items.</p><div class="settings-list" id="storage-list">${areas.map(a=>renderStorageRow(a)).join('')||'<p class="text-dim">No storage areas defined yet.</p>'}</div><div class="settings-add-row"><input type="text" id="storage-input" placeholder="New storage area…" class="settings-input" onkeydown="if(event.key==='Enter'){event.preventDefault();addArea();}"><button class="btn btn-copper btn-sm" onclick="addArea()">+ Add</button></div></div>`; }
 async function addArea(){ const i=document.getElementById('storage-input'),name=i.value.trim();if(!name)return;const db=JSON.parse(JSON.stringify(_db));if(!(db.storage_areas=db.storage_areas||[]).includes(name)){db.storage_areas.push(name);}try{await pushDb(db,`Add storage area: ${name}`);APP_STATE.storageAreas=db.storage_areas;i.value='';renderStorageTab(document.getElementById('settings-content'));toast(`Storage area "${name}" added`);}catch(e){toast(e.message,true);} }
 async function deleteArea(name){ if(!confirm(`Delete storage area "${name}"?`))return;const db=JSON.parse(JSON.stringify(_db));db.storage_areas=(db.storage_areas||[]).filter(a=>a!==name);try{await pushDb(db,`Delete storage area: ${name}`);APP_STATE.storageAreas=db.storage_areas;document.getElementById(`area-row-${escId(name)}`)?.remove();toast('Storage area deleted');}catch(e){toast(e.message,true);} }
 function startRenameArea(name){ const row=document.getElementById(`area-row-${escId(name)}`);if(!row)return;row.innerHTML=`<input type="text" value="${escHtml(name)}" class="settings-input" id="ra-${escId(name)}" style="flex:1" onkeydown="if(event.key==='Enter'){commitRenameArea('${escHtml(name)}');}"><div class="settings-row-actions"><button class="btn btn-xs btn-copper" onclick="commitRenameArea('${escHtml(name)}')">Save</button><button class="btn btn-xs btn-outline" onclick="renderStorageTab(document.getElementById('settings-content'))">Cancel</button></div>`;document.getElementById(`ra-${escId(name)}`)?.focus(); }
