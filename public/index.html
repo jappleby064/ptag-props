@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>People's Theatre — Props &amp; Costume Inventory</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+
+  <header class="header">
+    <a class="header-brand" href="/">
+      <img src="/images/logo.jpg" alt="People's Theatre" class="header-logo-img"
+           onerror="this.style.display='none'">
+      <div class="header-logo-text">
+        <div class="name">People's Theatre</div>
+        <div class="sub">Props &amp; Costume Inventory</div>
+      </div>
+    </a>
+    <div class="header-spacer"></div>
+    <div class="header-actions" id="header-actions"></div>
+  </header>
+
+  <main class="main">
+    <div class="controls">
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="search" id="search-input" placeholder="Search by name, ID, location…">
+      </div>
+      <div class="filter-tabs">
+        <button class="filter-tab active" data-type="all">All</button>
+        <button class="filter-tab" data-type="prop">🎭 Props</button>
+        <button class="filter-tab" data-type="furniture">🪑 Furniture</button>
+        <button class="filter-tab" data-type="costume">👗 Costumes</button>
+      </div>
+      <span class="result-count" id="result-count"></span>
+    </div>
+
+    <div class="grid" id="item-grid">
+      <div class="loading-state"><div class="spinner"></div> Loading inventory…</div>
+    </div>
+  </main>
+
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js"></script>
+  <script src="/js/ui.js"></script>
+  <script src="/js/report.js"></script>
+  <script src="/js/dashboard.js"></script>
+  <script src="/js/settings.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Login — People's Theatre Inventory</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body class="login-page">
+
+  <div class="login-box">
+    <div class="login-logo">
+      <img src="/images/logo.jpg" alt="People's Theatre" class="login-logo-img"
+           onerror="this.style.display='none'">
+      <h1>People's Theatre</h1>
+      <p>Props &amp; Costume Inventory — Admin</p>
+    </div>
+
+    <div id="login-error" class="login-error"></div>
+
+    <form class="login-form" id="login-form" onsubmit="doLogin(event)">
+      <div class="form-field">
+        <label>Username</label>
+        <input type="text" id="username" name="username" autocomplete="username"
+               placeholder="Username" required autofocus>
+      </div>
+      <div class="form-field">
+        <label>Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password"
+               placeholder="Password" required>
+      </div>
+      <button type="submit" class="btn btn-copper btn-lg" id="login-btn"
+              style="width:100%;justify-content:center;margin-top:4px">
+        Sign In
+      </button>
+    </form>
+
+    <p style="text-align:center;margin-top:20px;font-size:12px;color:var(--text-dim)">
+      <a href="/">← Back to inventory</a>
+    </p>
+  </div>
+
+  <script src="/js/config.js"></script>
+  <script src="/js/api.js"></script>
+  <script>
+    if (getToken()) window.location.href = '/';
+
+    async function doLogin(e) {
+      e.preventDefault();
+      const btn   = document.getElementById('login-btn');
+      const errEl = document.getElementById('login-error');
+      errEl.classList.remove('show');
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner"></span> Signing in…';
+
+      try {
+        const { token, username: user } = await login(
+          document.getElementById('username').value.trim(),
+          document.getElementById('password').value
+        );
+        localStorage.setItem('ptag_token', token);
+        localStorage.setItem('ptag_user', user);
+        window.location.href = '/';
+      } catch (err) {
+        errEl.textContent = err.message || 'Login failed';
+        errEl.classList.add('show');
+        btn.disabled = false;
+        btn.innerHTML = 'Sign In';
+        document.getElementById('password').value = '';
+      }
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,134 @@
+{
+  "admins": [
+    {
+      "id": 1,
+      "username": "wardrobe",
+      "password_hash": "$2a$10$6wolVzeeOVNSmjk9QPQo7ev4PAK514z.b.hgQCPtJG27kP9PYBsC."
+    }
+  ],
+  "items": [
+    {
+      "id": 5,
+      "asset_id": "P-003",
+      "type": "prop",
+      "item_category": "Lamp",
+      "name": "DEMO Green Library Lamp",
+      "storage_area": "Props Store A",
+      "storage_location": "Shelf 4",
+      "size": null,
+      "notes": null,
+      "created_at": "2026-04-30T21:28:20.432Z",
+      "updated_at": "2026-04-30T21:28:20.432Z"
+    },
+    {
+      "id": 6,
+      "asset_id": "F-002",
+      "type": "furniture",
+      "item_category": "Bookcase",
+      "name": "DEMO ",
+      "storage_area": "Furniture Store",
+      "storage_location": "Left Wall",
+      "size": null,
+      "dimensions": "77x147cm",
+      "notes": "",
+      "created_at": "2026-04-30T21:31:02.189Z",
+      "updated_at": "2026-04-30T21:31:18.034Z"
+    },
+    {
+      "id": 7,
+      "asset_id": "C-002",
+      "type": "costume",
+      "item_category": "Jacket",
+      "name": "DEMO British Zulu War Jacket",
+      "storage_area": "Furniture Store",
+      "storage_location": "Rack 3 Upstairs",
+      "size": "Mens M",
+      "dimensions": null,
+      "notes": null,
+      "created_at": "2026-04-30T21:34:31.409Z",
+      "updated_at": "2026-04-30T21:34:31.409Z"
+    }
+  ],
+  "images": [
+    {
+      "id": 1,
+      "item_id": 5,
+      "filename": "1777584500428-mdsw6pizwln.jpeg",
+      "original_name": "image.jpeg",
+      "is_primary": 1,
+      "created_at": "2026-04-30T21:28:20.432Z"
+    },
+    {
+      "id": 2,
+      "item_id": 6,
+      "filename": "1777584662183-hd6epngupy8.png",
+      "original_name": "image.png",
+      "is_primary": 1,
+      "created_at": "2026-04-30T21:31:02.189Z"
+    },
+    {
+      "id": 3,
+      "item_id": 7,
+      "filename": "1777584871405-v7wqyc0cwza.jpeg",
+      "original_name": "image.jpeg",
+      "is_primary": 1,
+      "created_at": "2026-04-30T21:34:31.409Z"
+    }
+  ],
+  "counters": {
+    "prop": 3,
+    "furniture": 2,
+    "costume": 2
+  },
+  "nextId": {
+    "admin": 2,
+    "item": 8,
+    "image": 4,
+    "report": 3
+  },
+  "categories": {
+    "prop": [
+      "Lamp",
+      "Instrument",
+      "Painting/Photo/Hanging"
+    ],
+    "furniture": [
+      "Table",
+      "Chair",
+      "Cabinet",
+      "Sink",
+      "Bookcase",
+      "Sofa",
+      "Bed",
+      "Shelf"
+    ],
+    "costume": [
+      "Jacket",
+      "Trousers",
+      "Shirt",
+      "Hat",
+      "Wig"
+    ]
+  },
+  "storage_areas": [
+    "Furniture Store",
+    "Props Store A",
+    "Wardrobe Room"
+  ],
+  "reports": [
+    {
+      "id": 2,
+      "item_id": 7,
+      "item_name": "DEMO British Zulu War Jacket",
+      "item_asset_id": "C-002",
+      "item_type": "costume",
+      "type": "missing",
+      "note": null,
+      "reported_at": "2026-04-30T21:37:21.201Z",
+      "resolved": false,
+      "resolved_at": null,
+      "resolved_by": null,
+      "resolve_note": null
+    }
+  ]
+}
