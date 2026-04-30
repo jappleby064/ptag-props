@@ -125,9 +125,9 @@
       "type": "missing",
       "note": null,
       "reported_at": "2026-04-30T21:37:21.201Z",
-      "resolved": false,
-      "resolved_at": null,
-      "resolved_by": null,
+      "resolved": true,
+      "resolved_at": "2026-04-30T22:50:18.368Z",
+      "resolved_by": "wardrobe",
       "resolve_note": null
     }
   ]
