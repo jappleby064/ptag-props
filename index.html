@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>People's Theatre — Props &amp; Costume Inventory</title>
   <link rel="stylesheet" href="public/css/styles.css">
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/bcryptjs/2.4.3/bcrypt.min.js" integrity="sha512-V7/JKNPWqM6enxnMTa6bpgiM7fKz5fIzLSfVans9MycOg58+PaKIIhGiExzu0BQwWmBWzHRqpkz9d+qGf2MIQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
   <style>
     .server-badge { display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 9px;border-radius:12px;border:1px solid var(--border);color:var(--text-dim);white-space:nowrap; }
     .server-badge.connected { border-color:#1e8449;color:#1e8449;background:rgba(30,132,73,.08); }
@@ -47,19 +47,17 @@
 
 <script>
 // ─── Config ───────────────────────────────────────────────────────────────────
-const REPO  = 'jappleby064/ptag-props';
-const GH_API = 'https://api.github.com';
+const WORKER    = 'https://ptag-props.jappleby064.workers.dev';
 const TYPE_ICONS = { prop:'🎭', furniture:'🪑', costume:'👗' };
 window.APP_STATE = { categories:{ prop:[], furniture:[], costume:[] }, storageAreas:[] };
 
-let _db    = null;   // live inventory.json cache
-let _shas  = {};     // filename → sha for GitHub API deletes
+let _db     = null;
 let _filter = { type:'all', search:'' };
 let _dbt;
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
-function getGhToken() { return localStorage.getItem('ptag_gh_token'); }
-function isAdmin()    { return localStorage.getItem('ptag_authed') === '1' && !!getGhToken(); }
+function getToken() { return localStorage.getItem('ptag_token'); }
+function isAdmin()  { return !!getToken(); }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 function escHtml(s){ if(!s)return''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -87,60 +85,52 @@ function buildStorageOptions(sel=''){
   return`<option value="">— select —</option>`+(APP_STATE.storageAreas||[]).map(a=>`<option value="${escHtml(a)}"${a===sel?' selected':''}>${escHtml(a)}</option>`).join('');
 }
 
-// ─── GitHub REST API ──────────────────────────────────────────────────────────
-function ghHeaders(extra={}){
-  return { Authorization:`Bearer ${getGhToken()}`, 'X-GitHub-Api-Version':'2022-11-28', ...extra };
+// ─── Worker API client ────────────────────────────────────────────────────────
+async function workerFetch(path, options={}){
+  const headers={'Content-Type':'application/json',...(options.headers||{})};
+  const token=getToken();
+  if(token) headers['Authorization']=`Bearer ${token}`;
+  const res=await fetch(`${WORKER}${path}`,{...options,headers});
+  const data=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error||`HTTP ${res.status}`);
+  return data;
 }
 
-async function ghGet(path){
-  const r=await fetch(`${GH_API}${path}`,{headers:ghHeaders()});
-  if(!r.ok){ const b=await r.json().catch(()=>({})); throw new Error(b.message||`GitHub ${r.status}`); }
-  return r.json();
-}
-
-// Encode unicode string to base64
 function b64(str){ return btoa(unescape(encodeURIComponent(str))); }
 
-async function ghPutText(repoPath, textContent, message, sha){
-  const r=await fetch(`${GH_API}/repos/${REPO}/contents/${repoPath}`,{
-    method:'PUT', headers:ghHeaders({'Content-Type':'application/json'}),
-    body:JSON.stringify({ message, content:b64(textContent), ...(sha?{sha}:{}) })
-  });
-  if(!r.ok){ const b=await r.json().catch(()=>({})); throw new Error(b.message||`GitHub ${r.status}`); }
-  return r.json();
-}
-
-async function ghPutBinary(repoPath, base64content, message, sha){
-  const r=await fetch(`${GH_API}/repos/${REPO}/contents/${repoPath}`,{
-    method:'PUT', headers:ghHeaders({'Content-Type':'application/json'}),
-    body:JSON.stringify({ message, content:base64content, ...(sha?{sha}:{}) })
-  });
-  if(!r.ok){ const b=await r.json().catch(()=>({})); throw new Error(b.message||`GitHub ${r.status}`); }
-  return r.json();
-}
-
-async function ghDeleteFile(repoPath, message, sha){
-  const r=await fetch(`${GH_API}/repos/${REPO}/contents/${repoPath}`,{
-    method:'DELETE', headers:ghHeaders({'Content-Type':'application/json'}),
-    body:JSON.stringify({ message, sha })
-  });
-  if(!r.ok){ const b=await r.json().catch(()=>({})); throw new Error(b.message||`GitHub ${r.status}`); }
-  return r.json();
-}
-
-async function getFileSha(repoPath){
-  if(_shas[repoPath]) return _shas[repoPath];
-  const data=await ghGet(`/repos/${REPO}/contents/${repoPath}`);
-  _shas[repoPath]=data.sha;
+async function getFileSha(filePath){
+  const data=await workerFetch(`/api/files/${filePath}`);
   return data.sha;
 }
 
-// Save inventory.json back to GitHub
 async function pushDb(db, message){
   const sha=await getFileSha('inventory.json');
-  const res=await ghPutText('inventory.json', JSON.stringify(db,null,2), message||`Inventory update ${new Date().toISOString().slice(0,16)}`, sha);
-  _shas['inventory.json']=res.content.sha;
+  await workerFetch('/api/files/inventory.json',{
+    method:'PUT',
+    body:JSON.stringify({message:message||`Inventory update ${new Date().toISOString().slice(0,16)}`,content:b64(JSON.stringify(db,null,2)),sha})
+  });
   _db=db;
+}
+
+async function uploadImageFile(file){
+  const blob=await compressImage(file);
+  const b64content=await blobToBase64(blob);
+  const filename=`${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`;
+  await workerFetch(`/api/files/uploads/${filename}`,{
+    method:'PUT',
+    body:JSON.stringify({message:`Add image ${filename}`,content:b64content})
+  });
+  return filename;
+}
+
+async function deleteImageFile(filename){
+  try{
+    const sha=await getFileSha(`uploads/${filename}`);
+    await workerFetch(`/api/files/uploads/${filename}`,{
+      method:'DELETE',
+      body:JSON.stringify({message:`Remove image ${filename}`,sha})
+    });
+  }catch(e){ console.warn('Could not delete image file:',e.message); }
 }
 
 // Client-side image resize → base64 JPEG
@@ -170,15 +160,6 @@ async function blobToBase64(blob){
     reader.onload=e=>resolve(e.target.result.split(',')[1]);
     reader.readAsDataURL(blob);
   });
-}
-
-async function uploadImageFile(file){
-  const blob=await compressImage(file);
-  const b64content=await blobToBase64(blob);
-  const filename=`${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`;
-  const res=await ghPutBinary(`uploads/${filename}`, b64content, `Add image ${filename}`);
-  _shas[`uploads/${filename}`]=res.content.sha;
-  return filename;
 }
 
 // ─── Inventory data ───────────────────────────────────────────────────────────
@@ -234,7 +215,7 @@ async function setupHeader(){
 }
 
 function doLogout(){
-  localStorage.removeItem('ptag_authed');
+  localStorage.removeItem('ptag_token');
   localStorage.removeItem('ptag_user');
   setupHeader(); loadItems();
 }
@@ -285,66 +266,16 @@ async function submitLogin(e){
   const username=form.elements.username.value.trim();
   const password=form.elements.password.value;
   try{
-    const db=await loadDb();
-    const admin=db.admins.find(a=>a.username===username);
-    if(!admin) throw new Error('Invalid username or password.');
-    const valid=await bcrypt.compare(password, admin.password_hash);
-    if(!valid) throw new Error('Invalid username or password.');
-    localStorage.setItem('ptag_authed','1');
-    localStorage.setItem('ptag_user', username);
+    const data=await workerFetch('/api/login',{method:'POST',body:JSON.stringify({username,password})});
+    localStorage.setItem('ptag_token',data.token);
+    localStorage.setItem('ptag_user',data.username);
     closeModal('login-modal-backdrop');
-    // If no GitHub PAT stored yet, prompt for it once
-    if(!getGhToken()){ showPatSetupModal(); return; }
     setupHeader(); loadItems();
-    toast(`Welcome, ${username}`);
-  } catch(e2){
+    toast(`Welcome, ${data.username}`);
+  }catch(e2){
     err.textContent=e2.message;err.classList.add('show');
     btn.disabled=false;btn.innerHTML='Sign In';
   }
-}
-
-function showPatSetupModal(){
-  document.getElementById('pat-setup-backdrop')?.remove();
-  const el=document.createElement('div');el.id='pat-setup-backdrop';el.className='modal-backdrop';
-  el.innerHTML=`
-    <div class="modal modal--narrow">
-      <div class="modal-header">
-        <div class="modal-title">One-time Setup</div>
-      </div>
-      <div class="modal-body">
-        <p style="margin-bottom:10px;font-weight:600">Almost there — one last step.</p>
-        <p style="font-size:12px;color:var(--text-dim);margin-bottom:16px">
-          To save changes from this browser, a <strong>GitHub Personal Access Token</strong> is needed once per device.
-          It's stored locally and never sent anywhere except GitHub.<br><br>
-          Generate at <code>github.com → Settings → Developer settings →
-          Fine-grained tokens</code> → select <code>${REPO}</code> →
-          <em>Repository permissions → Contents: Read &amp; Write</em>.
-        </p>
-        <div class="login-error" id="pat-error"></div>
-        <div class="form-field" style="margin-bottom:14px">
-          <label>GitHub Personal Access Token</label>
-          <input type="password" id="pat-input" placeholder="github_pat_…" autocomplete="off">
-        </div>
-        <button class="btn btn-copper btn-lg" style="width:100%" onclick="savePatFromSetup()">Save &amp; Continue</button>
-      </div>
-    </div>`;
-  document.body.appendChild(el);
-  document.getElementById('pat-input').focus();
-}
-
-async function savePatFromSetup(){
-  const val=document.getElementById('pat-input')?.value.trim();
-  const err=document.getElementById('pat-error');
-  if(!val){ err.textContent='Please enter your token.';err.classList.add('show');return; }
-  err.classList.remove('show');
-  try{
-    const r=await fetch(`${GH_API}/repos/${REPO}`,{headers:{Authorization:`Bearer ${val}`,'X-GitHub-Api-Version':'2022-11-28'}});
-    if(!r.ok) throw new Error('Token invalid or no Contents access to this repository.');
-    localStorage.setItem('ptag_gh_token',val);
-    closeModal('pat-setup-backdrop');
-    setupHeader(); loadItems();
-    toast(`Welcome, ${localStorage.getItem('ptag_user')||'Admin'}`);
-  }catch(e){err.textContent=e.message;err.classList.add('show');}
 }
 
 // ─── Filters + grid ──────────────────────────────────────────────────────────
@@ -462,9 +393,7 @@ async function removeImg(itemId,imageId,filename){
   db.images=db.images.filter(i=>i.id!==imageId);
   try{
     await pushDb(db,'Remove image reference');
-    // Best-effort delete the actual file
-    try{ const sha=await getFileSha(`uploads/${filename}`); await ghDeleteFile(`uploads/${filename}`,`Remove image ${filename}`,sha); }
-    catch{}
+    await deleteImageFile(filename);
     showDetailModal(getItemFromCache(itemId)); toast('Image removed');
   }catch(e){ toast(e.message,true); }
 }
@@ -635,9 +564,7 @@ function confirmDelete(id,name){
   pushDb(db,`Delete item ${item.asset_id}: ${item.name}`)
     .then(async ()=>{
       // Best-effort delete image files
-      for(const fn of imgFilenames){
-        try{ const sha=await getFileSha(`uploads/${fn}`); await ghDeleteFile(`uploads/${fn}`,`Remove image ${fn}`,sha); }catch{}
-      }
+      for(const fn of imgFilenames){ await deleteImageFile(fn); }
       toast(`"${name}" deleted — GitHub Pages updates in ~1 minute`);
       loadItems();
     })
@@ -797,29 +724,14 @@ function loadSettingsTab(tab,tabEl){
 }
 
 function renderTokenTab(content){
-  const hasToken=!!getGhToken();
+  const user=localStorage.getItem('ptag_user')||'Admin';
   content.innerHTML=`<div class="settings-section">
-    <h3 class="settings-section-title">🔑 GitHub Access Token</h3>
+    <h3 class="settings-section-title">🔑 Session</h3>
     <p class="text-dim" style="margin-bottom:14px">
-      Your username and password are verified against the inventory database.
-      A GitHub token (stored in this browser only) is also required to save changes to the repository.
-      Token status: <strong style="color:${hasToken?'var(--green)':'var(--red)'}">${hasToken?'Stored ✓':'Not set'}</strong>
-    </p>
-    <div class="settings-add-row" style="margin-bottom:10px">
-      <input type="password" id="token-input" class="settings-input" placeholder="Paste new github_pat_… to replace" autocomplete="off">
-      <button class="btn btn-copper btn-sm" onclick="saveToken()">Update</button>
-    </div>
-    <p class="text-dim" style="font-size:11px;margin-bottom:16px">
-      Generate at <code>github.com → Settings → Developer settings → Fine-grained tokens</code>
-      → select <code>${REPO}</code> → Contents: Read &amp; Write.
+      Signed in as <strong>${user}</strong>. Authentication is handled securely via the PTAG server — no tokens are stored in this browser.
     </p>
     <button class="btn btn-danger btn-sm" onclick="doLogout()">Sign out</button>
   </div>`;
-}
-
-function saveToken(){
-  const val=document.getElementById('token-input')?.value.trim();
-  if(val){ localStorage.setItem('ptag_gh_token',val); toast('Token updated'); renderTokenTab(document.getElementById('settings-content')); }
 }
 
 function renderCategoriesTab(content){
