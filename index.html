@@ -3,22 +3,827 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PTAG Props — Inventory Data</title>
+  <title>People's Theatre — Props &amp; Costume Inventory</title>
+  <link rel="stylesheet" href="public/css/styles.css">
   <style>
-    body { font-family: -apple-system, sans-serif; max-width: 560px; margin: 80px auto; padding: 0 24px; color: #1c1c1e; }
-    h1 { font-size: 1.4rem; font-weight: 600; }
-    p { color: #636366; line-height: 1.6; }
-    a { color: #007aff; text-decoration: none; }
-    code { background: #f2f2f7; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+    .server-badge { display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:3px 9px;border-radius:12px;border:1px solid var(--border);color:var(--text-dim);white-space:nowrap; }
+    .server-badge.connected { border-color:#1e8449;color:#1e8449;background:rgba(30,132,73,.08); }
+    .server-status-dot { display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor; }
   </style>
 </head>
 <body>
-  <h1>People's Theatre Props &amp; Costume Inventory</h1>
-  <p>This site publishes the live inventory data for use by the PTAG Props iOS app.</p>
-  <p>
-    Inventory JSON: <a href="inventory.json"><code>inventory.json</code></a><br>
-    Images: <code>uploads/&lt;filename&gt;</code>
-  </p>
-  <p>Admin access is via the local server on the wardrobe laptop.</p>
+
+<header class="header">
+  <a class="header-brand" href="index.html">
+    <img src="public/images/logo.jpg" alt="People's Theatre" class="header-logo-img" onerror="this.style.display='none'">
+    <div class="header-logo-text">
+      <div class="name">People's Theatre</div>
+      <div class="sub">Props &amp; Costume Inventory</div>
+    </div>
+  </a>
+  <div class="header-spacer"></div>
+  <div class="header-actions" id="header-actions"></div>
+</header>
+
+<main class="main">
+  <div class="controls">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input type="search" id="search-input" placeholder="Search by name, ID, location…">
+    </div>
+    <div class="filter-tabs">
+      <button class="filter-tab active" data-type="all">All</button>
+      <button class="filter-tab" data-type="prop">🎭 Props</button>
+      <button class="filter-tab" data-type="furniture">🪑 Furniture</button>
+      <button class="filter-tab" data-type="costume">👗 Costumes</button>
+    </div>
+    <span class="result-count" id="result-count"></span>
+  </div>
+  <div class="grid" id="item-grid">
+    <div class="loading-state"><div class="spinner"></div> Loading inventory…</div>
+  </div>
+</main>
+
+<script>
+// ─── Config ───────────────────────────────────────────────────────────────────
+const REPO  = 'jappleby064/ptag-props';
+const GH_API = 'https://api.github.com';
+const TYPE_ICONS = { prop:'🎭', furniture:'🪑', costume:'👗' };
+window.APP_STATE = { categories:{ prop:[], furniture:[], costume:[] }, storageAreas:[] };
+
+let _db    = null;   // live inventory.json cache
+let _shas  = {};     // filename → sha for GitHub API deletes
+let _filter = { type:'all', search:'' };
+let _dbt;
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
+function getGhToken() { return localStorage.getItem('ptag_gh_token'); }
+function isAdmin()    { return !!getGhToken(); }
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+function escHtml(s){ if(!s)return''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escId(s)  { return String(s).replace(/[^a-zA-Z0-9]/g,'_'); }
+function fmtDate(i){ return i?new Date(i).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—'; }
+function imageUrl(f){ return f?`uploads/${f}`:null; }
+function primaryImage(imgs){ if(!imgs?.length)return null; return imgs.find(i=>i.is_primary)||imgs[0]; }
+function typeChip(t){ const l={prop:'Prop',furniture:'Furniture',costume:'Costume'}; return `<span class="chip chip-${t}">${l[t]||t}</span>`; }
+function categoryChip(c){ return `<span class="chip chip-category">${escHtml(c)}</span>`; }
+function closeModal(id){ document.getElementById(id)?.remove(); }
+
+function toast(msg,isError=false){
+  let c=document.getElementById('toast-container');
+  if(!c){c=document.createElement('div');c.id='toast-container';c.className='toast-container';document.body.appendChild(c);}
+  const el=document.createElement('div');el.className=`toast${isError?' error':''}`;el.textContent=msg;
+  c.appendChild(el);setTimeout(()=>el.remove(),4000);
+}
+
+function buildCategoryOptions(type,sel=''){
+  const cats=APP_STATE.categories[type]||[];
+  if(!cats.length)return`<option value="">No categories — add in Settings</option>`;
+  return cats.map(c=>`<option value="${escHtml(c)}"${c===sel?' selected':''}>${escHtml(c)}</option>`).join('');
+}
+function buildStorageOptions(sel=''){
+  return`<option value="">— select —</option>`+(APP_STATE.storageAreas||[]).map(a=>`<option value="${escHtml(a)}"${a===sel?' selected':''}>${escHtml(a)}</option>`).join('');
+}
+
+// ─── GitHub REST API ──────────────────────────────────────────────────────────
+function ghHeaders(extra={}){
+  return { Authorization:`Bearer ${getGhToken()}`, 'X-GitHub-Api-Version':'2022-11-28', ...extra };
+}
+
+async function ghGet(path){
+  const r=await fetch(`${GH_API}${path}`,{headers:ghHeaders()});
+  if(!r.ok){ const b=await r.json().catch(()=>({})); throw new Error(b.message||`GitHub ${r.status}`); }
+  return r.json();
+}
+
+// Encode unicode string to base64
+function b64(str){ return btoa(unescape(encodeURIComponent(str))); }
+
+async function ghPutText(repoPath, textContent, message, sha){
+  const r=await fetch(`${GH_API}/repos/${REPO}/contents/${repoPath}`,{
+    method:'PUT', headers:ghHeaders({'Content-Type':'application/json'}),
+    body:JSON.stringify({ message, content:b64(textContent), ...(sha?{sha}:{}) })
+  });
+  if(!r.ok){ const b=await r.json().catch(()=>({})); throw new Error(b.message||`GitHub ${r.status}`); }
+  return r.json();
+}
+
+async function ghPutBinary(repoPath, base64content, message, sha){
+  const r=await fetch(`${GH_API}/repos/${REPO}/contents/${repoPath}`,{
+    method:'PUT', headers:ghHeaders({'Content-Type':'application/json'}),
+    body:JSON.stringify({ message, content:base64content, ...(sha?{sha}:{}) })
+  });
+  if(!r.ok){ const b=await r.json().catch(()=>({})); throw new Error(b.message||`GitHub ${r.status}`); }
+  return r.json();
+}
+
+async function ghDeleteFile(repoPath, message, sha){
+  const r=await fetch(`${GH_API}/repos/${REPO}/contents/${repoPath}`,{
+    method:'DELETE', headers:ghHeaders({'Content-Type':'application/json'}),
+    body:JSON.stringify({ message, sha })
+  });
+  if(!r.ok){ const b=await r.json().catch(()=>({})); throw new Error(b.message||`GitHub ${r.status}`); }
+  return r.json();
+}
+
+async function getFileSha(repoPath){
+  if(_shas[repoPath]) return _shas[repoPath];
+  const data=await ghGet(`/repos/${REPO}/contents/${repoPath}`);
+  _shas[repoPath]=data.sha;
+  return data.sha;
+}
+
+// Save inventory.json back to GitHub
+async function pushDb(db, message){
+  const sha=await getFileSha('inventory.json');
+  const res=await ghPutText('inventory.json', JSON.stringify(db,null,2), message||`Inventory update ${new Date().toISOString().slice(0,16)}`, sha);
+  _shas['inventory.json']=res.content.sha;
+  _db=db;
+}
+
+// Client-side image resize → base64 JPEG
+function compressImage(file){
+  return new Promise(resolve=>{
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const img=new Image();
+      img.onload=()=>{
+        const MAX=1200;
+        let {width:w,height:h}=img;
+        if(w>MAX||h>MAX){ const r=Math.min(MAX/w,MAX/h); w=Math.round(w*r); h=Math.round(h*r); }
+        const canvas=document.createElement('canvas');
+        canvas.width=w; canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        canvas.toBlob(resolve,'image/jpeg',0.85);
+      };
+      img.src=e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function blobToBase64(blob){
+  return new Promise(resolve=>{
+    const reader=new FileReader();
+    reader.onload=e=>resolve(e.target.result.split(',')[1]);
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function uploadImageFile(file){
+  const blob=await compressImage(file);
+  const b64content=await blobToBase64(blob);
+  const filename=`${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`;
+  const res=await ghPutBinary(`uploads/${filename}`, b64content, `Add image ${filename}`);
+  _shas[`uploads/${filename}`]=res.content.sha;
+  return filename;
+}
+
+// ─── Inventory data ───────────────────────────────────────────────────────────
+async function loadDb(force=false){
+  if(_db&&!force) return _db;
+  const r=await fetch(`inventory.json?_=${Date.now()}`);
+  if(!r.ok) throw new Error('Could not load inventory.json');
+  _db=await r.json();
+  APP_STATE.categories   = _db.categories   || { prop:[], furniture:[], costume:[] };
+  APP_STATE.storageAreas = _db.storage_areas || [];
+  return _db;
+}
+
+function joinedItems(db){
+  return db.items.map(item=>{
+    const images=(db.images||[]).filter(img=>img.item_id===item.id).sort((a,b)=>b.is_primary-a.is_primary||a.id-b.id);
+    const open=(db.reports||[]).filter(r=>r.item_id===item.id&&!r.resolved);
+    return{...item,images,flags:{missing:open.some(r=>r.type==='missing'),broken:open.some(r=>r.type==='broken')}};
+  }).sort((a,b)=>a.type.localeCompare(b.type)||a.asset_id.localeCompare(b.asset_id));
+}
+
+function getItemFromCache(id){
+  if(!_db) return null;
+  const item=_db.items.find(i=>i.id===Number(id));
+  if(!item) return null;
+  const images=(_db.images||[]).filter(img=>img.item_id===item.id).sort((a,b)=>b.is_primary-a.is_primary||a.id-b.id);
+  const open=(_db.reports||[]).filter(r=>r.item_id===item.id&&!r.resolved);
+  return{...item,images,flags:{missing:open.some(r=>r.type==='missing'),broken:open.some(r=>r.type==='broken')}};
+}
+
+function suggestIdLocal(type){
+  if(!_db) return '';
+  const p={prop:'P',furniture:'F',costume:'C'};
+  return`${p[type]}-${String((_db.counters[type]||0)+1).padStart(3,'0')}`;
+}
+
+// ─── Header ───────────────────────────────────────────────────────────────────
+async function setupHeader(){
+  const slot=document.getElementById('header-actions');
+  if(isAdmin()){
+    const user=localStorage.getItem('ptag_user')||'Admin';
+    slot.innerHTML=`
+      <span class="server-badge connected"><span class="server-status-dot"></span>Admin</span>
+      <button class="btn btn-outline btn-sm" onclick="openAddModal()">+ Add Item</button>
+      <button class="btn btn-outline btn-sm" id="dashboard-btn" onclick="openDashboard()">📋 Dashboard <span id="report-badge" class="report-badge hidden">0</span></button>
+      <button class="btn btn-outline btn-sm" onclick="openSettings()">⚙️ Settings</button>
+      <span class="header-user">👤 ${escHtml(user)}</span>
+      <button class="btn btn-outline btn-sm" onclick="doLogout()">Sign out</button>`;
+    refreshReportBadge();
+  } else {
+    slot.innerHTML=`<button class="btn btn-copper btn-sm" onclick="openLoginModal()">Admin Login</button>`;
+  }
+}
+
+function doLogout(){
+  localStorage.removeItem('ptag_gh_token');
+  localStorage.removeItem('ptag_user');
+  setupHeader(); loadItems();
+}
+
+function refreshReportBadge(){
+  if(!_db) return;
+  const count=(_db.reports||[]).filter(r=>!r.resolved).length;
+  const badge=document.getElementById('report-badge');
+  if(!badge) return;
+  if(count>0){badge.textContent=count;badge.classList.remove('hidden');}
+  else badge.classList.add('hidden');
+}
+
+// ─── Login (GitHub PAT) ───────────────────────────────────────────────────────
+function openLoginModal(){
+  document.getElementById('login-modal-backdrop')?.remove();
+  const el=document.createElement('div');el.id='login-modal-backdrop';el.className='modal-backdrop';
+  el.innerHTML=`
+    <div class="modal modal--narrow">
+      <div class="modal-header">
+        <div class="modal-title">Admin Login</div>
+        <button class="modal-close" onclick="closeModal('login-modal-backdrop')">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:12px;color:var(--text-dim);margin-bottom:14px">
+          Admin access uses a <strong>GitHub Personal Access Token</strong> to write directly to the repository.
+          Generate one at <code>github.com → Settings → Developer settings → Fine-grained tokens</code>
+          with <em>Contents: Read &amp; Write</em> on this repo. Your token is stored in this browser only.
+        </p>
+        <form id="login-form" onsubmit="submitLogin(event)" class="login-form">
+          <div class="login-error" id="login-error"></div>
+          <div class="form-field">
+            <label>Display name</label>
+            <input type="text" name="username" placeholder="Your name (shown in header)" value="${escHtml(localStorage.getItem('ptag_user')||'')}">
+          </div>
+          <div class="form-field">
+            <label>GitHub Personal Access Token</label>
+            <input type="password" name="token" placeholder="github_pat_…" required autocomplete="off">
+          </div>
+          <button type="submit" class="btn btn-copper btn-lg" id="login-btn" style="width:100%">Sign In</button>
+        </form>
+      </div>
+    </div>`;
+  document.body.appendChild(el);
+  el.querySelector('input[name=username]').focus();
+}
+
+async function submitLogin(e){
+  e.preventDefault();
+  const form=e.target,btn=document.getElementById('login-btn'),err=document.getElementById('login-error');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Verifying…';
+  err.classList.remove('show');err.textContent='';
+  const token=form.elements.token.value.trim();
+  const username=form.elements.username.value.trim()||'Admin';
+  try{
+    // Verify token against GitHub API
+    const r=await fetch(`${GH_API}/repos/${REPO}`,{headers:{Authorization:`Bearer ${token}`,'X-GitHub-Api-Version':'2022-11-28'}});
+    if(!r.ok) throw new Error('Token invalid or no access to this repository.');
+    localStorage.setItem('ptag_gh_token',token);
+    localStorage.setItem('ptag_user',username);
+    closeModal('login-modal-backdrop');
+    setupHeader(); loadItems();
+    toast(`Welcome, ${username}`);
+  } catch(e2){
+    err.textContent=e2.message;err.classList.add('show');
+    btn.disabled=false;btn.innerHTML='Sign In';
+  }
+}
+
+// ─── Filters + grid ──────────────────────────────────────────────────────────
+function setupFilters(){
+  document.querySelectorAll('.filter-tab').forEach(tab=>{
+    tab.addEventListener('click',()=>{
+      document.querySelectorAll('.filter-tab').forEach(t=>t.classList.remove('active'));
+      tab.classList.add('active');_filter.type=tab.dataset.type;loadItems();
+    });
+  });
+  document.getElementById('search-input').addEventListener('input',e=>{
+    clearTimeout(_dbt);_dbt=setTimeout(()=>{_filter.search=e.target.value.trim();loadItems();},300);
+  });
+}
+
+async function loadItems(){
+  const grid=document.getElementById('item-grid');
+  grid.innerHTML='<div class="loading-state"><div class="spinner"></div> Loading inventory…</div>';
+  try{
+    const db=await loadDb();
+    let items=joinedItems(db);
+    if(_filter.type!=='all') items=items.filter(i=>i.type===_filter.type);
+    if(_filter.search){
+      const q=_filter.search.toLowerCase();
+      items=items.filter(i=>[i.name,i.asset_id,i.storage_area,i.item_category].some(v=>v&&v.toLowerCase().includes(q)));
+    }
+    document.getElementById('result-count').textContent=`${items.length} item${items.length!==1?'s':''}`;
+    if(!items.length){grid.innerHTML=`<div class="empty"><div class="empty-icon">🔍</div><h3>No items found</h3><p>Try adjusting your search or filters.</p></div>`;return;}
+    grid.innerHTML=items.map(i=>renderCard(i)).join('');
+  }catch(err){grid.innerHTML=`<div class="empty"><div class="empty-icon">⚠️</div><h3>Failed to load</h3><p>${escHtml(err.message)}</p></div>`;}
+}
+
+// ─── Cards ────────────────────────────────────────────────────────────────────
+function renderCard(item){
+  const img=primaryImage(item.images),flags=item.flags||{};
+  const flagHtml=(flags.missing||flags.broken)?`<div class="card-flag-badges">${flags.missing?'<span class="card-flag card-flag--missing">🔍 Missing</span>':''}${flags.broken?'<span class="card-flag card-flag--broken">🔧 Broken</span>':''}</div>`:'';
+  const imgHtml=img
+    ?`<div class="card-image" style="position:relative"><img src="${imageUrl(img.filename)}" alt="${escHtml(item.name)}" loading="lazy">${flagHtml}</div>`
+    :`<div class="card-image card-image--empty" style="position:relative">${TYPE_ICONS[item.type]||'📦'}${flagHtml}</div>`;
+  const adminActions=isAdmin()?`<div class="card-admin-actions" onclick="event.stopPropagation()"><button class="btn btn-outline btn-xs" onclick="openEditModal(${item.id})">✏️ Edit</button><button class="btn btn-danger btn-xs" onclick="confirmDelete(${item.id},'${escHtml(item.name)}')">🗑️</button></div>`:'';
+  return`<div class="card" onclick="openDetailModal(${item.id})" data-id="${item.id}">${imgHtml}
+    <div class="card-body">
+      <div class="card-asset-id">${item.asset_id}</div>
+      <div class="card-name">${escHtml(item.name)}</div>
+      <div class="card-meta">${typeChip(item.type)} ${categoryChip(item.item_category)}</div>
+      ${item.storage_area?`<div class="card-location">📍 ${escHtml(item.storage_area)}${item.storage_location?' · '+escHtml(item.storage_location):''}</div>`:''}
+    </div>
+    <div class="card-report-bar" onclick="event.stopPropagation()">
+      <button class="btn-report" onclick="openReportModal(${item.id},'${escHtml(item.name)}','missing')">🔍 Report Missing</button>
+      <button class="btn-report btn-report--broken" onclick="openReportModal(${item.id},'${escHtml(item.name)}','broken')">🔧 Report Broken</button>
+    </div>${adminActions}</div>`;
+}
+
+// ─── Detail modal ─────────────────────────────────────────────────────────────
+function openDetailModal(id){ const item=getItemFromCache(id); if(item) showDetailModal(item); }
+
+function showDetailModal(item){
+  document.getElementById('detail-modal-backdrop')?.remove();
+  const galleryHtml=item.images?.length
+    ?item.images.map((img,idx)=>`<div class="gallery-item${img.is_primary?' primary':''}">
+        ${img.is_primary?'<div class="gallery-primary-badge">★ Primary</div>':''}
+        <img src="${imageUrl(img.filename)}" alt="" onclick="openLightbox(${JSON.stringify(item.images).replace(/"/g,'&quot;')},${idx})">
+        ${isAdmin()?`<div class="gallery-item-actions">
+          ${!img.is_primary?`<button class="btn btn-sm btn-outline" onclick="setImgPrimary(${item.id},${img.id})">★</button>`:''}
+          <button class="btn btn-sm btn-danger" onclick="removeImg(${item.id},${img.id},'${escHtml(img.filename)}')">🗑️</button>
+        </div>`:''}
+      </div>`).join('')
+    :`<div class="no-image-placeholder"><span>📷</span>No images uploaded</div>`;
+
+  const adminBtns=isAdmin()?`
+    <button class="btn btn-copper" onclick="openEditModal(${item.id});closeModal('detail-modal-backdrop')">✏️ Edit</button>
+    <button class="btn btn-danger"  onclick="confirmDelete(${item.id},'${escHtml(item.name)}');closeModal('detail-modal-backdrop')">🗑️ Delete</button>`:'';
+
+  const el=document.createElement('div');el.id='detail-modal-backdrop';el.className='modal-backdrop';
+  el.innerHTML=`<div class="modal">
+    <div class="modal-header">
+      <div><div class="modal-asset-id">${item.asset_id}</div><div class="modal-title">${escHtml(item.name)}</div></div>
+      <div class="card-meta" style="flex:1;margin-left:12px">${typeChip(item.type)} ${categoryChip(item.item_category)}</div>
+      <button class="modal-close" onclick="closeModal('detail-modal-backdrop')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="gallery">${galleryHtml}</div>
+      <div class="section-divider"></div>
+      <div class="detail-grid">
+        <div class="detail-field"><label>Storage Area</label><div class="value">${escHtml(item.storage_area)||'—'}</div></div>
+        <div class="detail-field"><label>Storage Location</label><div class="value">${escHtml(item.storage_location)||'—'}</div></div>
+        ${item.type==='costume'&&item.size?`<div class="detail-field"><label>Size</label><div class="value">${escHtml(item.size)}</div></div>`:''}
+        ${item.type==='furniture'&&item.dimensions?`<div class="detail-field"><label>Dimensions</label><div class="value">${escHtml(item.dimensions)}</div></div>`:''}
+        <div class="detail-field full"><label>Notes</label><div class="value" style="white-space:pre-wrap">${escHtml(item.notes)||'—'}</div></div>
+      </div>
+      <div class="form-actions" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-report-detail" onclick="openReportModal(${item.id},'${escHtml(item.name)}','missing')">🔍 Report Missing</button>
+          <button class="btn btn-report-detail btn-report-detail--broken" onclick="openReportModal(${item.id},'${escHtml(item.name)}','broken')">🔧 Report Broken</button>
+        </div>
+        ${isAdmin()?`<div style="display:flex;gap:8px">${adminBtns}</div>`:''}
+      </div>
+    </div>
+  </div>`;
+  document.body.appendChild(el);
+}
+
+// ─── Image admin ──────────────────────────────────────────────────────────────
+async function setImgPrimary(itemId,imageId){
+  const db=_db;
+  db.images.filter(i=>i.item_id===itemId).forEach(i=>i.is_primary=0);
+  const t=db.images.find(i=>i.id===imageId); if(t) t.is_primary=1;
+  try{ await pushDb(db,'Update primary image'); showDetailModal(getItemFromCache(itemId)); toast('Primary image updated'); }
+  catch(e){ toast(e.message,true); }
+}
+
+async function removeImg(itemId,imageId,filename){
+  if(!confirm('Delete this image?')) return;
+  const db=_db;
+  db.images=db.images.filter(i=>i.id!==imageId);
+  try{
+    await pushDb(db,'Remove image reference');
+    // Best-effort delete the actual file
+    try{ const sha=await getFileSha(`uploads/${filename}`); await ghDeleteFile(`uploads/${filename}`,`Remove image ${filename}`,sha); }
+    catch{}
+    showDetailModal(getItemFromCache(itemId)); toast('Image removed');
+  }catch(e){ toast(e.message,true); }
+}
+
+// ─── Add / Edit form ──────────────────────────────────────────────────────────
+function openAddModal()    { showItemForm(null); }
+function openEditModal(id) { const item=getItemFromCache(id); if(item) showItemForm(item); }
+
+function showItemForm(item=null){
+  document.getElementById('form-modal-backdrop')?.remove();
+  const isEdit=!!item,defaultType=item?item.type:'prop';
+  const el=document.createElement('div');el.id='form-modal-backdrop';el.className='modal-backdrop';
+  el.innerHTML=`<div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">${isEdit?`Edit: ${escHtml(item.name)}`:'Add New Item'}</div>
+      <button class="modal-close" onclick="closeModal('form-modal-backdrop')">×</button>
+    </div>
+    <div class="modal-body">
+      <form id="item-form" onsubmit="submitItemForm(event,${isEdit?item.id:'null'})">
+        <div class="form-grid">
+          <div class="form-field">
+            <label>Type <span class="required">*</span></label>
+            <select name="type" id="form-type" onchange="onTypeChange()" ${isEdit?'disabled':''} required>
+              <option value="prop"      ${defaultType==='prop'?'selected':''}>Prop</option>
+              <option value="furniture" ${defaultType==='furniture'?'selected':''}>Furniture</option>
+              <option value="costume"   ${defaultType==='costume'?'selected':''}>Costume</option>
+            </select>
+          </div>
+          <div class="form-field">
+            <label>Category <span class="required">*</span></label>
+            <select name="item_category" id="form-category" required>${buildCategoryOptions(defaultType,item?item.item_category:'')}</select>
+          </div>
+          <div class="form-field">
+            <label>Asset ID${isEdit?'':' <span class="required">*</span>'}</label>
+            <input type="text" name="asset_id" id="form-asset-id"
+                   value="${isEdit?escHtml(item.asset_id):escHtml(suggestIdLocal(defaultType))}"
+                   placeholder="e.g. P-001" ${isEdit?'disabled':'required'}
+                   style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()">
+            ${!isEdit?'<span class="hint">Suggested — change if needed</span>':''}
+          </div>
+          <div class="form-field">
+            <label>Name <span class="required">*</span></label>
+            <input type="text" name="name" value="${escHtml(item?item.name:'')}" placeholder="Item name" required>
+          </div>
+          <div class="form-field">
+            <label>Storage Area</label>
+            <select name="storage_area" id="form-storage-area">${buildStorageOptions(item?item.storage_area:'')}</select>
+          </div>
+          <div class="form-field">
+            <label>Storage Location</label>
+            <input type="text" name="storage_location" value="${escHtml(item?item.storage_location:'')}" placeholder="e.g. Shelf 3, Box 2">
+          </div>
+          <div class="form-field" id="size-field" style="${defaultType==='costume'?'':'display:none'}">
+            <label>Size</label>
+            <input type="text" name="size" value="${escHtml(item?item.size:'')}" placeholder="e.g. M, 10, 34W">
+          </div>
+          <div class="form-field" id="dimensions-field" style="${defaultType==='furniture'?'':'display:none'}">
+            <label>Dimensions</label>
+            <input type="text" name="dimensions" value="${escHtml(item?item.dimensions:'')}" placeholder="e.g. 120×60×75 cm">
+          </div>
+          <div class="form-field full">
+            <label>Notes</label>
+            <textarea name="notes" placeholder="Any additional notes…">${escHtml(item?item.notes:'')}</textarea>
+          </div>
+          <div class="form-field full">
+            <label>Images${isEdit?' (add more)':''}</label>
+            <div class="upload-zone" onclick="document.getElementById('file-input').click()"
+                 ondragover="event.preventDefault();this.classList.add('drag')"
+                 ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event)">
+              <span class="upload-zone-icon">📷</span>
+              Click or drag images here (JPEG, PNG · max 20 MB each — compressed automatically)
+              <input type="file" id="file-input" accept="image/*" multiple onchange="handleFiles(this.files)">
+            </div>
+            <div class="upload-preview" id="upload-preview"></div>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-outline" onclick="closeModal('form-modal-backdrop')">Cancel</button>
+          <button type="submit" class="btn btn-copper" id="submit-btn">${isEdit?'💾 Save Changes':'➕ Add Item'}</button>
+        </div>
+      </form>
+    </div>
+  </div>`;
+  document.body.appendChild(el);
+  document.getElementById('item-form')._files=[];
+}
+
+function onTypeChange(){
+  const type=document.getElementById('form-type').value;
+  document.getElementById('form-category').innerHTML=buildCategoryOptions(type);
+  document.getElementById('size-field').style.display      =type==='costume'  ?'':'none';
+  document.getElementById('dimensions-field').style.display=type==='furniture'?'':'none';
+  const el=document.getElementById('form-asset-id');
+  if(el&&!el.disabled) el.value=suggestIdLocal(type);
+}
+function handleFiles(list){ const f=document.getElementById('item-form');if(!f)return;f._files=f._files||[];Array.from(list).forEach(x=>f._files.push(x));renderUploadPreview(); }
+function handleDrop(e){ e.preventDefault();e.currentTarget.classList.remove('drag');handleFiles(e.dataTransfer.files); }
+function renderUploadPreview(){ const f=document.getElementById('item-form'),p=document.getElementById('upload-preview');if(!p||!f)return;p.innerHTML=(f._files||[]).map((x,i)=>`<div class="upload-thumb"><img src="${URL.createObjectURL(x)}"><button type="button" class="upload-thumb-remove" onclick="removeUploadFile(${i})">×</button></div>`).join(''); }
+function removeUploadFile(i){ const f=document.getElementById('item-form');f._files.splice(i,1);renderUploadPreview(); }
+
+async function submitItemForm(e,editId){
+  e.preventDefault();
+  const form=e.target,btn=document.getElementById('submit-btn');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Saving…';
+  const db=JSON.parse(JSON.stringify(_db));
+  const f=form.elements;
+  const now=new Date().toISOString();
+  try{
+    // Upload images first
+    let uploadedFilenames=[];
+    if(form._files?.length){
+      btn.innerHTML=`<span class="spinner"></span> Uploading ${form._files.length} image(s)…`;
+      uploadedFilenames=await Promise.all(form._files.map(uploadImageFile));
+    }
+
+    if(!editId){
+      // Create
+      const type=f.type.value;
+      const asset_id=f.asset_id.value.trim().toUpperCase();
+      if(db.items.find(i=>i.asset_id===asset_id)) throw new Error(`Asset ID ${asset_id} already in use`);
+      const prefixes={prop:'P',furniture:'F',costume:'C'};
+      const match=asset_id.match(new RegExp(`^${prefixes[type]}-(\\d+)$`));
+      if(match){ const n=parseInt(match[1],10); if(n>db.counters[type]) db.counters[type]=n; }
+      const id=db.nextId.item++;
+      db.items.push({ id,asset_id,type,item_category:f.item_category.value,name:f.name.value,
+        storage_area:f.storage_area.value||null,storage_location:f.storage_location.value||null,
+        size:type==='costume'?f.size.value||null:null,dimensions:type==='furniture'?f.dimensions.value||null:null,
+        notes:f.notes.value||null,created_at:now,updated_at:now });
+      uploadedFilenames.forEach((fn,idx)=>{
+        db.images.push({id:db.nextId.image++,item_id:id,filename:fn,original_name:form._files[idx].name,is_primary:idx===0?1:0,created_at:now});
+      });
+      await pushDb(db,`Add item ${asset_id}: ${f.name.value}`);
+      toast('Item added — GitHub Pages updates in ~1 minute');
+    } else {
+      // Edit
+      const idx=db.items.findIndex(i=>i.id===Number(editId));
+      if(idx===-1) throw new Error('Item not found');
+      const ex=db.items[idx];
+      db.items[idx]={ ...ex,item_category:f.item_category.value||ex.item_category,name:f.name.value||ex.name,
+        storage_area:f.storage_area.value!==undefined?f.storage_area.value:ex.storage_area,
+        storage_location:f.storage_location.value!==undefined?f.storage_location.value:ex.storage_location,
+        size:ex.type==='costume'?f.size.value||ex.size:null,
+        dimensions:ex.type==='furniture'?f.dimensions.value||ex.dimensions:null,
+        notes:f.notes.value||null,updated_at:now };
+      const hasImages=db.images.some(img=>img.item_id===ex.id);
+      uploadedFilenames.forEach((fn,fileIdx)=>{
+        db.images.push({id:db.nextId.image++,item_id:ex.id,filename:fn,original_name:form._files[fileIdx].name,is_primary:!hasImages&&fileIdx===0?1:0,created_at:now});
+      });
+      await pushDb(db,`Update item ${ex.asset_id}`);
+      toast('Item updated — GitHub Pages updates in ~1 minute');
+    }
+    closeModal('form-modal-backdrop');
+    loadItems();
+  }catch(err){
+    toast(err.message,true);btn.disabled=false;btn.innerHTML=editId?'💾 Save Changes':'➕ Add Item';
+  }
+}
+
+// ─── Delete item ──────────────────────────────────────────────────────────────
+function confirmDelete(id,name){
+  if(!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+  const db=JSON.parse(JSON.stringify(_db));
+  const item=db.items.find(i=>i.id===Number(id));
+  if(!item){ toast('Item not found',true); return; }
+  const imgFilenames=(db.images||[]).filter(img=>img.item_id===Number(id)).map(img=>img.filename);
+  db.items=db.items.filter(i=>i.id!==Number(id));
+  db.images=db.images.filter(img=>img.item_id!==Number(id));
+  pushDb(db,`Delete item ${item.asset_id}: ${item.name}`)
+    .then(async ()=>{
+      // Best-effort delete image files
+      for(const fn of imgFilenames){
+        try{ const sha=await getFileSha(`uploads/${fn}`); await ghDeleteFile(`uploads/${fn}`,`Remove image ${fn}`,sha); }catch{}
+      }
+      toast(`"${name}" deleted — GitHub Pages updates in ~1 minute`);
+      loadItems();
+    })
+    .catch(err=>toast(err.message,true));
+}
+
+// ─── Report modal ─────────────────────────────────────────────────────────────
+function openReportModal(itemId,itemName,preselect='missing'){
+  document.getElementById('report-modal-backdrop')?.remove();
+  const el=document.createElement('div');el.id='report-modal-backdrop';el.className='modal-backdrop';
+  el.innerHTML=`<div class="modal modal--narrow">
+    <div class="modal-header"><div class="modal-title">Report an Issue</div><button class="modal-close" onclick="closeModal('report-modal-backdrop')">×</button></div>
+    <div class="modal-body">
+      <p class="report-item-name">Item: <strong>${escHtml(itemName)}</strong></p>
+      ${!isAdmin()?'<p style="font-size:12px;color:var(--text-dim);margin-bottom:12px">Reports are saved directly to the inventory. You do not need to log in.</p>':''}
+      <form id="report-form" onsubmit="submitReportForm(event,${itemId},'${escHtml(itemName)}')">
+        <div class="report-type-toggle">
+          <label class="report-type-btn${preselect==='missing'?' active':''}"><input type="radio" name="type" value="missing" ${preselect==='missing'?'checked':''}><span>🔍 Missing</span></label>
+          <label class="report-type-btn${preselect==='broken'?' active':''}"><input type="radio" name="type" value="broken" ${preselect==='broken'?'checked':''}><span>🔧 Broken / Damaged</span></label>
+        </div>
+        <div class="form-field" style="margin-top:16px">
+          <label>Additional notes <span style="color:var(--text-dim)">(optional)</span></label>
+          <textarea name="note" rows="3" placeholder="Describe the issue…"></textarea>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn btn-outline" onclick="closeModal('report-modal-backdrop')">Cancel</button>
+          <button type="submit" class="btn btn-copper" id="report-submit-btn">Submit Report</button>
+        </div>
+      </form>
+    </div>
+  </div>`;
+  document.body.appendChild(el);
+  el.querySelectorAll('input[name=type]').forEach(r=>r.addEventListener('change',()=>{
+    el.querySelectorAll('.report-type-btn').forEach(b=>b.classList.remove('active'));
+    r.closest('.report-type-btn').classList.add('active');
+  }));
+}
+
+async function submitReportForm(e,itemId,itemName){
+  e.preventDefault();
+  const form=e.target,btn=document.getElementById('report-submit-btn');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Submitting…';
+  const type=form.elements.type.value,note=form.elements.note.value.trim();
+  // Reports are written directly to inventory.json via GitHub API
+  // We need a token — if not admin, we need a way to write. Non-admin report submission
+  // requires a write token. For now, reports require admin login (or we use a shared token).
+  if(!isAdmin()){
+    toast('Please log in as admin to submit reports, or contact the wardrobe team.',true);
+    btn.disabled=false;btn.innerHTML='Submit Report';
+    return;
+  }
+  const db=JSON.parse(JSON.stringify(_db));
+  const item=db.items.find(i=>i.id===Number(itemId));
+  if(!item){ toast('Item not found',true); return; }
+  const now=new Date().toISOString();
+  db.reports=db.reports||[];
+  db.reports.push({ id:db.nextId.report++,item_id:Number(itemId),item_name:item.name,item_asset_id:item.asset_id,item_type:item.type,type,note:note||null,reported_at:now,resolved:false,resolved_at:null,resolved_by:null,resolve_note:null });
+  try{
+    await pushDb(db,`Report ${type}: ${item.asset_id}`);
+    closeModal('report-modal-backdrop');
+    refreshReportBadge();
+    toast('Report submitted — thank you!');
+  }catch(err){ toast(err.message,true); btn.disabled=false; btn.innerHTML='Submit Report'; }
+}
+
+// ─── Dashboard ────────────────────────────────────────────────────────────────
+function openDashboard(){
+  document.getElementById('dashboard-modal-backdrop')?.remove();
+  const el=document.createElement('div');el.id='dashboard-modal-backdrop';el.className='modal-backdrop';
+  el.innerHTML=`<div class="modal modal--wide">
+    <div class="modal-header"><div class="modal-title">📋 Dashboard — Issue Reports</div><button class="modal-close" onclick="closeModal('dashboard-modal-backdrop')">×</button></div>
+    <div class="modal-body">
+      <div class="dash-tabs">
+        <button class="dash-tab active" onclick="loadDashTab('open',this)">Open</button>
+        <button class="dash-tab" onclick="loadDashTab('resolved',this)">Resolved</button>
+        <button class="dash-tab" onclick="loadDashTab('all',this)">All</button>
+      </div>
+      <div id="dash-content" class="dash-content"><div class="loading-state"><div class="spinner"></div></div></div>
+    </div>
+  </div>`;
+  document.body.appendChild(el);
+  loadDashTab('open');
+}
+
+function loadDashTab(status,tabEl){
+  document.querySelectorAll('.dash-tab').forEach(t=>t.classList.remove('active'));
+  if(tabEl) tabEl.classList.add('active');
+  const content=document.getElementById('dash-content');
+  if(!content) return;
+  let reports=(_db?.reports||[]).slice();
+  if(status==='open')     reports=reports.filter(r=>!r.resolved);
+  else if(status==='resolved') reports=reports.filter(r=>r.resolved);
+  reports.sort((a,b)=>new Date(b.reported_at)-new Date(a.reported_at));
+  if(!reports.length){content.innerHTML=`<div class="empty" style="padding:40px 0"><div class="empty-icon">${status==='open'?'✅':'📭'}</div><h3>${status==='open'?'No open reports':'No reports yet'}</h3></div>`;return;}
+  const open=reports.filter(r=>!r.resolved);
+  const summary=status==='open'?`<div class="dash-summary">
+    <div class="dash-summary-stat"><span class="dash-stat-num">${open.filter(r=>r.type==='missing').length}</span><span class="dash-stat-label">🔍 Missing</span></div>
+    <div class="dash-summary-stat"><span class="dash-stat-num">${open.filter(r=>r.type==='broken').length}</span><span class="dash-stat-label">🔧 Broken</span></div>
+  </div>`:'';
+  content.innerHTML=summary+`<div class="report-list">${reports.map(r=>renderReport(r)).join('')}</div>`;
+}
+
+function renderReport(r){
+  const badge=r.type==='missing'?`<span class="report-badge-type missing">🔍 Missing</span>`:`<span class="report-badge-type broken">🔧 Broken</span>`;
+  const resolved=r.resolved?`<div class="report-resolved-info">✅ Resolved ${fmtDate(r.resolved_at)} by <strong>${escHtml(r.resolved_by)}</strong>${r.resolve_note?`<br><em>${escHtml(r.resolve_note)}</em>`:''}</div>`:'';
+  const actions=!r.resolved?`<div class="report-actions"><button class="btn btn-sm btn-copper" onclick="doResolveReport(${r.id})">✅ Resolve</button><button class="btn btn-sm btn-danger" onclick="doDeleteReport(${r.id})">🗑️</button></div>`:`<div class="report-actions"><button class="btn btn-sm btn-outline" onclick="doDeleteReport(${r.id})">🗑️ Remove</button></div>`;
+  return`<div class="report-card${r.resolved?' report-card--resolved':''}" id="report-${r.id}">
+    <div class="report-card-header">${badge}<strong class="report-item-link" onclick="openDetailModal(${r.item_id})">${escHtml(r.item_asset_id)} — ${escHtml(r.item_name)}</strong><span class="report-date">${fmtDate(r.reported_at)}</span></div>
+    ${r.note?`<div class="report-note">"${escHtml(r.note)}"</div>`:''}${resolved}${actions}</div>`;
+}
+
+async function doResolveReport(id){
+  const note=prompt('Resolution note (optional):')||null;
+  const db=JSON.parse(JSON.stringify(_db));
+  const r=db.reports.find(x=>x.id===id);
+  if(!r){ toast('Report not found',true); return; }
+  r.resolved=true; r.resolved_at=new Date().toISOString(); r.resolved_by=localStorage.getItem('ptag_user')||'Admin'; r.resolve_note=note;
+  try{ await pushDb(db,`Resolve report #${id}`); toast('Report marked resolved'); const at=document.querySelector('.dash-tab.active'); loadDashTab(at?.textContent.trim().toLowerCase()||'open',at); refreshReportBadge(); }
+  catch(e){ toast(e.message,true); }
+}
+
+async function doDeleteReport(id){
+  if(!confirm('Delete this report permanently?')) return;
+  const db=JSON.parse(JSON.stringify(_db));
+  db.reports=db.reports.filter(r=>r.id!==id);
+  try{ await pushDb(db,`Delete report #${id}`); document.getElementById(`report-${id}`)?.remove(); refreshReportBadge(); toast('Report deleted'); }
+  catch(e){ toast(e.message,true); }
+}
+
+// ─── Settings ─────────────────────────────────────────────────────────────────
+function openSettings(){
+  document.getElementById('settings-modal-backdrop')?.remove();
+  const el=document.createElement('div');el.id='settings-modal-backdrop';el.className='modal-backdrop';
+  el.innerHTML=`<div class="modal modal--wide">
+    <div class="modal-header"><div class="modal-title">⚙️ Settings</div><button class="modal-close" onclick="closeModal('settings-modal-backdrop')">×</button></div>
+    <div class="modal-body">
+      <div class="dash-tabs">
+        <button class="dash-tab active" onclick="loadSettingsTab('categories',this)">Categories</button>
+        <button class="dash-tab" onclick="loadSettingsTab('storage',this)">Storage Areas</button>
+        <button class="dash-tab" onclick="loadSettingsTab('token',this)">🔑 Access Token</button>
+      </div>
+      <div id="settings-content" class="dash-content"></div>
+    </div>
+  </div>`;
+  document.body.appendChild(el);
+  loadSettingsTab('categories');
+}
+
+function loadSettingsTab(tab,tabEl){
+  document.querySelectorAll('#settings-modal-backdrop .dash-tab').forEach(t=>t.classList.remove('active'));
+  if(tabEl) tabEl.classList.add('active');
+  const content=document.getElementById('settings-content');
+  if(!content) return;
+  if(tab==='categories') renderCategoriesTab(content);
+  else if(tab==='storage') renderStorageTab(content);
+  else renderTokenTab(content);
+}
+
+function renderTokenTab(content){
+  content.innerHTML=`<div class="settings-section">
+    <h3 class="settings-section-title">🔑 GitHub Access Token</h3>
+    <p class="text-dim" style="margin-bottom:14px">
+      Your token is stored in this browser's localStorage. To update it, paste a new one below.
+      Generate at <code>github.com → Settings → Developer settings → Fine-grained tokens</code>
+      with <em>Contents: Read &amp; Write</em> on <code>${REPO}</code>.
+    </p>
+    <div class="settings-add-row" style="margin-bottom:10px">
+      <input type="password" id="token-input" class="settings-input" placeholder="github_pat_… (leave blank to keep current)" autocomplete="off">
+      <button class="btn btn-copper btn-sm" onclick="saveToken()">Update</button>
+    </div>
+    <div style="margin-top:16px">
+      <button class="btn btn-danger btn-sm" onclick="doLogout()">Sign out &amp; clear token</button>
+    </div>
+  </div>`;
+}
+
+function saveToken(){
+  const val=document.getElementById('token-input')?.value.trim();
+  if(val){ localStorage.setItem('ptag_gh_token',val); toast('Token updated'); setupHeader(); }
+}
+
+function renderCategoriesTab(content){
+  const cats=APP_STATE.categories;
+  const types=[{key:'prop',label:'🎭 Props'},{key:'furniture',label:'🪑 Furniture'},{key:'costume',label:'👗 Costumes'}];
+  content.innerHTML=types.map(({key,label})=>`
+    <div class="settings-section">
+      <h3 class="settings-section-title">${label}</h3>
+      <div class="settings-list" id="cat-list-${key}">
+        ${(cats[key]||[]).map(name=>renderCatRow(key,name)).join('')||'<p class="text-dim">No categories yet.</p>'}
+      </div>
+      <div class="settings-add-row">
+        <input type="text" id="cat-input-${key}" placeholder="New category name…" class="settings-input"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();addCat('${key}');}">
+        <button class="btn btn-copper btn-sm" onclick="addCat('${key}')">+ Add</button>
+      </div>
+    </div>`).join('<div class="section-divider"></div>');
+}
+
+function renderCatRow(type,name){ return`<div class="settings-row" id="cat-row-${type}-${escId(name)}"><span class="settings-row-label">${escHtml(name)}</span><div class="settings-row-actions"><button class="btn btn-xs btn-outline" onclick="startRenameCat('${type}','${escHtml(name)}')">✏️</button><button class="btn btn-xs btn-danger" onclick="deleteCat('${type}','${escHtml(name)}')">🗑️</button></div></div>`; }
+function renderStorageRow(name){ return`<div class="settings-row" id="area-row-${escId(name)}"><span class="settings-row-label">${escHtml(name)}</span><div class="settings-row-actions"><button class="btn btn-xs btn-outline" onclick="startRenameArea('${escHtml(name)}')">✏️</button><button class="btn btn-xs btn-danger" onclick="deleteArea('${escHtml(name)}')">🗑️</button></div></div>`; }
+
+async function addCat(type){ const i=document.getElementById(`cat-input-${type}`),name=i.value.trim();if(!name)return;const db=JSON.parse(JSON.stringify(_db));if(!(db.categories[type]=db.categories[type]||[]).includes(name)){db.categories[type].push(name);}try{await pushDb(db,`Add category: ${name}`);APP_STATE.categories=db.categories;i.value='';renderCategoriesTab(document.getElementById('settings-content'));toast(`Category "${name}" added`);}catch(e){toast(e.message,true);} }
+async function deleteCat(type,name){ if(!confirm(`Delete category "${name}"?`))return;const db=JSON.parse(JSON.stringify(_db));db.categories[type]=(db.categories[type]||[]).filter(c=>c!==name);try{await pushDb(db,`Delete category: ${name}`);APP_STATE.categories=db.categories;document.getElementById(`cat-row-${type}-${escId(name)}`)?.remove();toast('Category deleted');}catch(e){toast(e.message,true);} }
+function startRenameCat(type,name){ const row=document.getElementById(`cat-row-${type}-${escId(name)}`);if(!row)return;row.innerHTML=`<input type="text" value="${escHtml(name)}" class="settings-input" id="ri-${escId(name)}" style="flex:1" onkeydown="if(event.key==='Enter'){commitRenameCat('${type}','${escHtml(name)}');}"><div class="settings-row-actions"><button class="btn btn-xs btn-copper" onclick="commitRenameCat('${type}','${escHtml(name)}')">Save</button><button class="btn btn-xs btn-outline" onclick="renderCategoriesTab(document.getElementById('settings-content'))">Cancel</button></div>`;document.getElementById(`ri-${escId(name)}`)?.focus(); }
+async function commitRenameCat(type,old){ const i=document.getElementById(`ri-${escId(old)}`),nw=i?.value.trim();if(!nw||nw===old){renderCategoriesTab(document.getElementById('settings-content'));return;}const db=JSON.parse(JSON.stringify(_db));db.categories[type]=(db.categories[type]||[]).map(c=>c===old?nw:c);try{await pushDb(db,`Rename category: ${old} → ${nw}`);APP_STATE.categories=db.categories;renderCategoriesTab(document.getElementById('settings-content'));toast(`Renamed to "${nw}"`);}catch(e){toast(e.message,true);} }
+
+function renderStorageTab(content){ const areas=APP_STATE.storageAreas;content.innerHTML=`<div class="settings-section"><h3 class="settings-section-title">📍 Storage Areas</h3><p class="text-dim" style="margin-bottom:12px">These appear as a dropdown when adding or editing items.</p><div class="settings-list" id="storage-list">${areas.map(a=>renderStorageRow(a)).join('')||'<p class="text-dim">No storage areas defined yet.</p>'}</div><div class="settings-add-row"><input type="text" id="storage-input" placeholder="New storage area…" class="settings-input" onkeydown="if(event.key==='Enter'){event.preventDefault();addArea();}"><button class="btn btn-copper btn-sm" onclick="addArea()">+ Add</button></div></div>`; }
+async function addArea(){ const i=document.getElementById('storage-input'),name=i.value.trim();if(!name)return;const db=JSON.parse(JSON.stringify(_db));if(!(db.storage_areas=db.storage_areas||[]).includes(name)){db.storage_areas.push(name);}try{await pushDb(db,`Add storage area: ${name}`);APP_STATE.storageAreas=db.storage_areas;i.value='';renderStorageTab(document.getElementById('settings-content'));toast(`Storage area "${name}" added`);}catch(e){toast(e.message,true);} }
+async function deleteArea(name){ if(!confirm(`Delete storage area "${name}"?`))return;const db=JSON.parse(JSON.stringify(_db));db.storage_areas=(db.storage_areas||[]).filter(a=>a!==name);try{await pushDb(db,`Delete storage area: ${name}`);APP_STATE.storageAreas=db.storage_areas;document.getElementById(`area-row-${escId(name)}`)?.remove();toast('Storage area deleted');}catch(e){toast(e.message,true);} }
+function startRenameArea(name){ const row=document.getElementById(`area-row-${escId(name)}`);if(!row)return;row.innerHTML=`<input type="text" value="${escHtml(name)}" class="settings-input" id="ra-${escId(name)}" style="flex:1" onkeydown="if(event.key==='Enter'){commitRenameArea('${escHtml(name)}');}"><div class="settings-row-actions"><button class="btn btn-xs btn-copper" onclick="commitRenameArea('${escHtml(name)}')">Save</button><button class="btn btn-xs btn-outline" onclick="renderStorageTab(document.getElementById('settings-content'))">Cancel</button></div>`;document.getElementById(`ra-${escId(name)}`)?.focus(); }
+async function commitRenameArea(old){ const i=document.getElementById(`ra-${escId(old)}`),nw=i?.value.trim();if(!nw||nw===old){renderStorageTab(document.getElementById('settings-content'));return;}const db=JSON.parse(JSON.stringify(_db));db.storage_areas=(db.storage_areas||[]).map(a=>a===old?nw:a);try{await pushDb(db,`Rename storage area: ${old} → ${nw}`);APP_STATE.storageAreas=db.storage_areas;renderStorageTab(document.getElementById('settings-content'));toast(`Renamed to "${nw}"`);}catch(e){toast(e.message,true);} }
+
+// ─── Lightbox ─────────────────────────────────────────────────────────────────
+let _lbImages=[],_lbIndex=0;
+function openLightbox(images,start=0){ document.getElementById('lightbox')?.remove();_lbImages=images;_lbIndex=start;const lb=document.createElement('div');lb.id='lightbox';lb.className='lightbox';lb.innerHTML=`<button class="lightbox-close" onclick="document.getElementById('lightbox').remove()">×</button><img id="lb-img" src="" alt="">${images.length>1?`<button class="lightbox-nav lightbox-nav--prev" onclick="lbNav(-1)">&#8249;</button><button class="lightbox-nav lightbox-nav--next" onclick="lbNav(1)">&#8250;</button><div class="lightbox-counter" id="lb-counter"></div>`:''}`; lb.addEventListener('click',e=>{if(e.target===lb)lb.remove();}); document.body.appendChild(lb); lbShow(); }
+function lbShow(){ const img=document.getElementById('lb-img');if(img)img.src=imageUrl(_lbImages[_lbIndex].filename);const c=document.getElementById('lb-counter');if(c)c.textContent=`${_lbIndex+1} / ${_lbImages.length}`; }
+function lbNav(d){ _lbIndex=(_lbIndex+d+_lbImages.length)%_lbImages.length; lbShow(); }
+
+document.addEventListener('keydown',e=>{
+  if(document.getElementById('lightbox')){ if(e.key==='ArrowRight')lbNav(1);if(e.key==='ArrowLeft')lbNav(-1);if(e.key==='Escape')document.getElementById('lightbox')?.remove();return; }
+  if(e.key==='Escape'){ const bs=document.querySelectorAll('.modal-backdrop');if(bs.length)bs[bs.length-1].remove(); }
+});
+document.addEventListener('click',e=>{ if(e.target.classList.contains('modal-backdrop'))e.target.remove(); });
+
+// ─── Init ─────────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded',async()=>{
+  setupFilters();
+  await setupHeader();
+  loadItems();
+});
+</script>
 </body>
 </html>
