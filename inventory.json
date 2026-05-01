@@ -47,6 +47,20 @@
       "notes": null,
       "created_at": "2026-04-30T21:34:31.409Z",
       "updated_at": "2026-04-30T21:34:31.409Z"
+    },
+    {
+      "id": 8,
+      "asset_id": "P-004",
+      "type": "prop",
+      "item_category": "Lamp",
+      "name": "Test",
+      "storage_area": "Furniture Store",
+      "storage_location": null,
+      "size": null,
+      "dimensions": null,
+      "notes": null,
+      "created_at": "2026-05-01T09:32:54.793Z",
+      "updated_at": "2026-05-01T09:32:54.793Z"
     }
   ],
   "images": [
@@ -76,13 +90,13 @@
     }
   ],
   "counters": {
-    "prop": 3,
+    "prop": 4,
     "furniture": 2,
     "costume": 2
   },
   "nextId": {
     "admin": 2,
-    "item": 8,
+    "item": 9,
     "image": 4,
     "report": 3
   },
