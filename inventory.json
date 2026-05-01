@@ -25,14 +25,14 @@
       "asset_id": "F-002",
       "type": "furniture",
       "item_category": "Bookcase",
-      "name": "DEMO ",
+      "name": "DEMO Ikea Kallax",
       "storage_area": "Furniture Store",
       "storage_location": "Left Wall",
       "size": null,
       "dimensions": "77x147cm",
-      "notes": "",
+      "notes": null,
       "created_at": "2026-04-30T21:31:02.189Z",
-      "updated_at": "2026-04-30T21:31:18.034Z"
+      "updated_at": "2026-05-01T09:31:18.348Z"
     },
     {
       "id": 7,
