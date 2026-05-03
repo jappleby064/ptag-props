@@ -3,7 +3,12 @@
     {
       "id": 1,
       "username": "wardrobe",
-      "password_hash": "$2a$10$6wolVzeeOVNSmjk9QPQo7ev4PAK514z.b.hgQCPtJG27kP9PYBsC."
+      "password_hash": "$2a$10$EsfXEOp3KhQlvhMXqoBEYu.RWPXIlnKBtByp6o/80Qbl1O0frgELe"
+    },
+    {
+      "id": 2,
+      "username": "props",
+      "password_hash": "$2a$10$bBvIaDA5dZ18AEZLNOM7G.x068D54gUGq7J1mu0LljiGAZu6Yp8v2"
     }
   ],
   "items": [
@@ -81,7 +86,7 @@
     "costume": 2
   },
   "nextId": {
-    "admin": 2,
+    "admin": 3,
     "item": 9,
     "image": 4,
     "report": 3

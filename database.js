@@ -44,10 +44,17 @@ function initDatabase() {
   const db = loadDb();
 
   if (!db.admins.find(a => a.username === 'wardrobe')) {
-    const hash = bcrypt.hashSync('PtaG2026', 10);
+    const hash = bcrypt.hashSync('PtaGWard26', 10);
     db.admins.push({ id: db.nextId.admin++, username: 'wardrobe', password_hash: hash });
     saveDb(db);
-    console.log('Default admin user created.');
+    console.log('Default wardrobe user created.');
+  }
+
+  if (!db.admins.find(a => a.username === 'props')) {
+    const hash = bcrypt.hashSync('PtaGProps26', 10);
+    db.admins.push({ id: db.nextId.admin++, username: 'props', password_hash: hash });
+    saveDb(db);
+    console.log('Default props user created.');
   }
 
   console.log('Database ready:', DB_FILE);

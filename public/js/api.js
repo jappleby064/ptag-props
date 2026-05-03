@@ -39,6 +39,9 @@ async function setPrimaryImage(iid, imgId){ return apiFetch(`/items/${iid}/image
 async function login(username, password) {
   return apiFetch('/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
 }
+async function logout() {
+  return apiFetch('/auth/logout', { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }) }).catch(() => {});
+}
 
 // ── Categories ───────────────────────────────────────────────────────────────
 async function getCategories()                           { return apiFetch('/categories'); }

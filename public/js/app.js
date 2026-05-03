@@ -40,7 +40,8 @@ function setupHeader() {
   }
 }
 
-function doLogout() {
+async function doLogout() {
+  await logout();
   localStorage.removeItem('ptag_token');
   localStorage.removeItem('ptag_user');
   window.location.reload();
@@ -200,6 +201,45 @@ async function removeImg(itemId, imageId) {
   } catch (err) { toast(err.message, true); }
 }
 
+function renderFormGallery(item) {
+  if (!item.images || item.images.length === 0)
+    return `<div class="no-image-placeholder"><span>📷</span>No images uploaded</div>`;
+  return item.images.map((img, idx) => `
+    <div class="gallery-item${img.is_primary ? ' primary' : ''}">
+      ${img.is_primary ? '<div class="gallery-primary-badge">★ Primary</div>' : ''}
+      <img src="${imageUrl(img.filename)}" alt=""
+           onclick="openLightbox(${JSON.stringify(item.images).replace(/"/g,'&quot;')},${idx})">
+      <div class="gallery-item-actions">
+        ${!img.is_primary ? `<button type="button" class="btn btn-sm btn-outline" onclick="setImgPrimaryInForm(${item.id},${img.id})">★</button>` : ''}
+        <button type="button" class="btn btn-sm btn-danger" onclick="removeImgInForm(${item.id},${img.id})">🗑️</button>
+      </div>
+    </div>`).join('');
+}
+
+async function refreshFormGallery(itemId) {
+  const gallery = document.getElementById('form-existing-gallery');
+  if (!gallery) return;
+  const item = await getItem(itemId);
+  gallery.innerHTML = renderFormGallery(item);
+}
+
+async function setImgPrimaryInForm(itemId, imageId) {
+  try {
+    await setPrimaryImage(itemId, imageId);
+    await refreshFormGallery(itemId);
+    toast('Primary image updated');
+  } catch (err) { toast(err.message, true); }
+}
+
+async function removeImgInForm(itemId, imageId) {
+  if (!confirm('Delete this image?')) return;
+  try {
+    await deleteImage(itemId, imageId);
+    await refreshFormGallery(itemId);
+    toast('Image removed');
+  } catch (err) { toast(err.message, true); }
+}
+
 // ── Add / Edit modal ───────────────────────────────────────────────────────────
 function openAddModal() { showItemForm(null); }
 async function openEditModal(id) {
@@ -278,8 +318,13 @@ async function showItemForm(item = null) {
               <label>Notes</label>
               <textarea name="notes" placeholder="Any additional notes…">${escHtml(item ? item.notes : '')}</textarea>
             </div>
+            ${isEdit ? `
             <div class="form-field full">
-              <label>Images ${isEdit ? '(add more)' : ''}</label>
+              <label>Existing Images</label>
+              <div class="gallery" id="form-existing-gallery">${renderFormGallery(item)}</div>
+            </div>` : ''}
+            <div class="form-field full">
+              <label>${isEdit ? 'Add More Images' : 'Images'}</label>
               <div class="upload-zone" onclick="document.getElementById('file-input').click()"
                    ondragover="event.preventDefault();this.classList.add('drag')"
                    ondragleave="this.classList.remove('drag')"
