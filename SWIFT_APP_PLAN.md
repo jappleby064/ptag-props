@@ -12,11 +12,12 @@ Phase 2 (optional): admin write support via the Express server.
 
 | Resource | URL |
 |---|---|
-| Inventory JSON | `https://jappleby064.github.io/ptag-props/inventory.json` |
-| Images | `https://jappleby064.github.io/ptag-props/uploads/<filename>` |
+| Items API | `https://thepeoplesprops.uk/api/items` |
+| Images | `https://thepeoplesprops.uk/uploads/<filename>` |
 
-Base URL is configurable in Settings so staff can also point at the LAN server
-(`http://<laptop>.local:3000`) during tech week.
+Base URL defaults to `https://thepeoplesprops.uk` and is configurable in
+Settings so staff can also point at the LAN server (`http://<laptop>.local:3000`)
+during tech week if needed.
 
 ## Offline-first sync strategy
 
@@ -178,11 +179,10 @@ Recommended: Apple Developer + TestFlight for iOS; notarised `.dmg` for macOS.
 
 ## Implementation notes
 
-- `inventory.json` is `{ admins, items, images, categories, storage_areas,
-  reports, counters, nextId }`. Decode the full struct; the app uses `items`,
-  `images`, `reports`.
+- The `/api/items` endpoint returns items with images and flags already joined
+  by the Express server — no client-side joining needed.
 - Flags (missing/broken) are derived from unresolved `reports` (`resolved == false`).
-- GitHub Pages propagation after admin save takes ~30 s.
+- The VPS is always on — no propagation delay. Pull-to-refresh reflects live data.
 - Daily sync window: schedule via `BGAppRefreshTask` (iOS) so the app warms up
   even when the user hasn't opened it; fall back to on-launch check when
   background refresh is denied.

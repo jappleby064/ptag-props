@@ -24,10 +24,10 @@ Phase 2 (optional): admin write support.
 ## Data source
 
 Same as Swift app:
-- Inventory: `https://jappleby064.github.io/ptag-props/inventory.json`
-- Images: `https://jappleby064.github.io/ptag-props/uploads/<filename>`
+- Items API: `https://thepeoplesprops.uk/api/items`
+- Images: `https://thepeoplesprops.uk/uploads/<filename>`
 
-Base URL is overridable in Settings.
+Base URL defaults to `https://thepeoplesprops.uk` and is overridable in Settings.
 
 ## Offline-first sync strategy
 
