@@ -122,6 +122,8 @@ async function renderPickingModal() {
   const items = await Promise.all(ids.map(id => getItem(id).catch(() => null)));
   const resolved = items.map((item, i) => ({ id: ids[i], item }));
 
+  const groups = groupPickingByType(resolved);
+
   body.innerHTML = `
     <div class="picking-toolbar">
       <span class="text-dim">${ids.length} item${ids.length !== 1 ? 's' : ''} on list</span>
@@ -130,9 +132,42 @@ async function renderPickingModal() {
         <button class="btn btn-copper btn-sm" onclick="printPickingList()">🖨️ Print / Save PDF</button>
       </div>
     </div>
-    <ul class="picking-rows">
-      ${resolved.map(({ id, item }) => renderPickingRow(id, item)).join('')}
-    </ul>`;
+    ${groups.map(g => `
+      <div class="picking-group">
+        <h3 class="picking-group-heading">${TYPE_ICONS[g.type] || '📦'} ${g.label} <span class="text-dim">(${g.entries.length})</span></h3>
+        <ul class="picking-rows">
+          ${g.entries.map(({ id, item }) => renderPickingRow(id, item)).join('')}
+        </ul>
+      </div>
+    `).join('')}`;
+}
+
+// Group resolved picking entries by item type, in fixed order.
+// Unknown / missing items go in an "Other" bucket at the end.
+const PICKING_TYPE_ORDER = ['prop', 'furniture', 'costume'];
+function groupPickingByType(resolved) {
+  const buckets = new Map();
+  for (const entry of resolved) {
+    const t = entry.item?.type || 'other';
+    if (!buckets.has(t)) buckets.set(t, []);
+    buckets.get(t).push(entry);
+  }
+  const groups = [];
+  for (const t of PICKING_TYPE_ORDER) {
+    if (buckets.has(t)) {
+      groups.push({ type: t, label: pluralTypeLabel(t), entries: buckets.get(t) });
+      buckets.delete(t);
+    }
+  }
+  for (const [t, entries] of buckets) {
+    groups.push({ type: t, label: t === 'other' ? 'Other' : pluralTypeLabel(t), entries });
+  }
+  return groups;
+}
+
+function pluralTypeLabel(type) {
+  const base = TYPE_LABELS[type] || type;
+  return base.endsWith('s') ? base : base + 's';
 }
 
 function renderPickingRow(id, item) {
@@ -187,9 +222,14 @@ async function printPickingList() {
       <div class="picking-print-title">People's Theatre — Picking List</div>
       <div class="picking-print-meta">${items.length} items · ${new Date().toLocaleString('en-GB')}</div>
     </div>
-    <div class="picking-print-grid">
-      ${items.map(renderPrintCell).join('')}
-    </div>`;
+    ${groupPickingByType(items.map(item => ({ id: item.id, item }))).map(g => `
+      <section class="picking-print-section">
+        <h2 class="picking-print-section-title">${g.label} <span class="picking-print-section-count">(${g.entries.length})</span></h2>
+        <div class="picking-print-grid">
+          ${g.entries.map(({ item }) => renderPrintCell(item)).join('')}
+        </div>
+      </section>
+    `).join('')}`;
   document.body.appendChild(root);
 
   // Give images a moment to load before opening the print dialog.

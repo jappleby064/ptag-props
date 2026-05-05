@@ -852,7 +852,18 @@ button { cursor: pointer; font-family: inherit; }
 }
 .picking-toolbar-actions { display: flex; gap: 8px; }
 
-.picking-rows { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.picking-rows { list-style: none; display: flex; flex-direction: column; gap: 8px; padding: 0; margin: 0; }
+.picking-group + .picking-group { margin-top: 18px; }
+.picking-group-heading {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--copper);
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
 .picking-row {
   display: flex;
   align-items: center;
@@ -930,6 +941,20 @@ button { cursor: pointer; font-family: inherit; }
     grid-template-columns: 1fr 1fr;
     gap: 6mm;
   }
+
+  .picking-print-section { margin-top: 6mm; page-break-inside: auto; }
+  .picking-print-section:first-of-type { margin-top: 0; }
+  .picking-print-section-title {
+    font-size: 12pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin: 0 0 3mm;
+    padding-bottom: 1mm;
+    border-bottom: 1px solid #000;
+    page-break-after: avoid;
+  }
+  .picking-print-section-count { font-weight: 400; color: #555; font-size: 10pt; }
 
   .pp-cell {
     display: grid !important;
