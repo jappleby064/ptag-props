@@ -798,3 +798,178 @@ button { cursor: pointer; font-family: inherit; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--copper-light); }
+
+/* ─── Picking list ─────────────────────────────────────────────────── */
+.picking-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--copper);
+  color: #fff;
+  border: none;
+  padding: 12px 18px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 6px 20px rgba(100,70,30,0.35);
+  transition: var(--trans);
+}
+.picking-fab:hover { background: var(--copper-dark); transform: translateY(-1px); }
+.picking-fab svg { stroke: #fff; }
+
+.picking-fab-badge {
+  background: #fff;
+  color: var(--copper);
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.picking-fab-badge.hidden { display: none; }
+
+.picking-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 4px 0 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+.picking-toolbar-actions { display: flex; gap: 8px; }
+
+.picking-rows { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.picking-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.picking-row--missing { opacity: 0.7; }
+.picking-row-thumb {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: var(--surface2);
+  flex-shrink: 0;
+}
+.picking-row-thumb--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  color: var(--text-muted);
+}
+.picking-row-body { flex: 1; min-width: 0; }
+.picking-row-asset {
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--copper);
+  letter-spacing: 1px;
+}
+.picking-row-name {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* highlight cards already on the picking list (optional visual cue) */
+.card.on-picking-list { box-shadow: 0 0 0 2px var(--copper) inset, var(--shadow); }
+
+/* ─── Print container (hidden on screen) ───────────────────────────── */
+.picking-print-root { display: none; }
+
+/* ─── Print stylesheet — A4 picking list export ────────────────────── */
+@media print {
+  @page { size: A4; margin: 12mm; }
+
+  /* Hide everything by default */
+  body > * { display: none !important; }
+  /* …then show the print root */
+  body > .picking-print-root,
+  .picking-print-root * { display: revert !important; }
+  .picking-print-root { display: block !important; }
+
+  body { background: #fff !important; color: #000 !important; }
+
+  .picking-print-header {
+    display: flex !important;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 2px solid #000;
+    padding-bottom: 6px;
+    margin-bottom: 10px;
+  }
+  .picking-print-title { font-size: 16pt; font-weight: 700; }
+  .picking-print-meta { font-size: 9pt; color: #555; }
+
+  .picking-print-grid {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 6mm;
+  }
+
+  .pp-cell {
+    display: grid !important;
+    grid-template-columns: 32mm 1fr;
+    gap: 4mm;
+    align-items: start;
+    padding: 3mm;
+    border: 1px solid #999;
+    border-radius: 2mm;
+    page-break-inside: avoid;
+    break-inside: avoid;
+    height: 38mm;
+    overflow: hidden;
+  }
+  .pp-cell-img {
+    width: 32mm;
+    height: 32mm;
+    object-fit: cover;
+    border: 1px solid #ccc;
+    background: #f4f4f4;
+  }
+  .pp-cell-img--empty {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    font-size: 18pt;
+  }
+  .pp-cell-body { font-size: 9pt; line-height: 1.3; }
+  .pp-cell-asset {
+    font-family: 'Courier New', monospace;
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .pp-cell-name {
+    font-size: 11pt;
+    font-weight: 700;
+    margin: 1mm 0 2mm;
+    line-height: 1.2;
+    /* clamp to 2 lines so cell height stays predictable */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .pp-cell-loc { font-size: 9pt; }
+}
