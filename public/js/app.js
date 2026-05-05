@@ -174,7 +174,7 @@ function showDetailModal(item) {
         </div>
         <div class="form-actions" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-copper" onclick="addToPicking(${item.id},'${escHtml(item.name)}')">📋 Add to Picking List</button>
+            <button class="btn btn-report-detail btn-report-detail--pick" onclick="addToPicking(${item.id},'${escHtml(item.name)}')">📋 Add to Picking List</button>
             <button class="btn btn-report-detail" onclick="openReportModal(${item.id},'${escHtml(item.name)}','missing')">🔍 Report Missing</button>
             <button class="btn btn-report-detail btn-report-detail--broken" onclick="openReportModal(${item.id},'${escHtml(item.name)}','broken')">🔧 Report Broken</button>
           </div>

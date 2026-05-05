@@ -162,6 +162,8 @@ button { cursor: pointer; font-family: inherit; }
 .btn-report:hover { background: rgba(196,135,77,0.2); }
 .btn-report--broken { background: rgba(192,57,43,0.1); color: #e74c3c; }
 .btn-report--broken:hover { background: rgba(192,57,43,0.2); }
+.btn-report--pick { background: rgba(184,115,51,0.15); color: var(--copper-dark); }
+.btn-report--pick:hover { background: rgba(184,115,51,0.28); }
 
 /* Report buttons in detail modal */
 .btn-report-detail {
@@ -181,6 +183,8 @@ button { cursor: pointer; font-family: inherit; }
 .btn-report-detail:hover { background: rgba(196,135,77,0.18); border-color: var(--copper); }
 .btn-report-detail--broken { border-color: rgba(192,57,43,0.4); background: rgba(192,57,43,0.08); color: #e74c3c; }
 .btn-report-detail--broken:hover { background: rgba(192,57,43,0.18); border-color: var(--red); }
+.btn-report-detail--pick { border-color: var(--copper); background: var(--copper); color: #fff; }
+.btn-report-detail--pick:hover { background: var(--copper-dark); border-color: var(--copper-dark); }
 
 /* ─── Badge ────────────────────────────────────────────────────────── */
 .report-badge {

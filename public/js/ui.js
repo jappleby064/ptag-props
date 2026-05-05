@@ -89,6 +89,7 @@ function renderCard(item, isAdmin = false) {
         ${item.storage_area ? `<div class="card-location">📍 ${escHtml(item.storage_area)}${item.storage_location ? ' · ' + escHtml(item.storage_location) : ''}</div>` : ''}
       </div>
       <div class="card-report-bar" onclick="event.stopPropagation()">
+        <button class="btn-report btn-report--pick" onclick="togglePickingFromCard(${item.id},'${escHtml(item.name)}',event)">📋 Pick</button>
         <button class="btn-report" onclick="openReportModal(${item.id},'${escHtml(item.name)}','missing')">🔍 Report Missing</button>
         <button class="btn-report btn-report--broken" onclick="openReportModal(${item.id},'${escHtml(item.name)}','broken')">🔧 Report Broken</button>
       </div>
