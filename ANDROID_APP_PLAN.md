@@ -54,42 +54,103 @@ app/src/main/java/uk/peoplestheatre/props/
     db/
       AppDatabase.kt              // Room
       ItemDao.kt
-      PickingListDao.kt
+      PickingListDao.kt           // queries on both PickingList and PickingListEntry
       entities/
         ItemEntity.kt
         ItemImageEntity.kt
         ReportEntity.kt
-        PickingListEntry.kt
+        PickingListEntity.kt      // named list header
+        PickingListEntryEntity.kt // asset ID row within a list
     remote/
       InventoryApi.kt             // Retrofit interface
       InventoryDto.kt             // matches JSON shape
     repository/
       InventoryRepository.kt      // sync logic, ETag handling
-      PickingListRepository.kt
+      PickingListRepository.kt    // CRUD for lists and entries
   sync/
     SyncWorker.kt                 // WorkManager worker
     SyncScheduler.kt              // schedules daily + on-launch sync
   ui/
-    browse/  BrowseScreen.kt, ItemCard.kt
-    detail/  ItemDetailScreen.kt
-    picking/ PickingListScreen.kt, PickingListExport.kt   // PDF generation
+    browse/   BrowseScreen.kt, ItemCard.kt
+    detail/   ItemDetailScreen.kt
+    picking/
+      PickingListsScreen.kt       // index of all named lists
+      PickingListDetailScreen.kt  // items in one list, reorder, export
+      AddToListSheet.kt           // bottom sheet: choose or create a list
+      PickingListExport.kt        // PdfDocument A4 generation
     settings/ SettingsScreen.kt
-    theme/  Theme.kt, Color.kt, Type.kt
+    theme/    Theme.kt, Color.kt, Type.kt
 ```
 
 ## Picking List feature (app-only)
 
-Same contract as Swift app:
+Multiple named lists, all stored locally in Room. Never synced to the server.
 
-- **Add** — button on detail screen, swipe action on browse rows.
-- **Manage** — dedicated screen: reorder, swipe-to-remove, "Clear All".
-- **Export** — share sheet → "Export PDF" using **`PdfDocument`** (Android
-  framework) with the same A4 multi-item-per-page layout as the website. Drawn
-  on a `Canvas` (image bitmap + text); shared via `FileProvider` so users can
-  save to Drive/email.
-- **Storage** — `PickingListEntry(id, assetId, addedAt, listName)` in Room.
-  Resolved against cached items at render time; missing items show a
-  placeholder.
+### Room entities
+
+```kotlin
+@Entity(tableName = "picking_lists")
+data class PickingListEntity(
+    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    val name: String,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+)
+
+@Entity(
+    tableName = "picking_list_entries",
+    foreignKeys = [ForeignKey(
+        entity = PickingListEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["listId"],
+        onDelete = ForeignKey.CASCADE,
+    )],
+    indices = [Index("listId")],
+)
+data class PickingListEntryEntity(
+    @PrimaryKey val id: String = UUID.randomUUID().toString(),
+    val listId: String,
+    val assetId: String,
+    val addedAt: Long = System.currentTimeMillis(),
+    val position: Int,          // for user-controlled ordering
+)
+```
+
+### DAO
+
+```kotlin
+@Dao interface PickingListDao {
+    @Query("SELECT * FROM picking_lists ORDER BY updatedAt DESC")
+    fun allLists(): Flow<List<PickingListEntity>>
+
+    @Query("SELECT * FROM picking_list_entries WHERE listId = :id ORDER BY position")
+    fun entriesFor(id: String): Flow<List<PickingListEntryEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertList(l: PickingListEntity)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun upsertEntry(e: PickingListEntryEntity)
+    @Delete suspend fun deleteList(l: PickingListEntity)
+    @Delete suspend fun deleteEntry(e: PickingListEntryEntity)
+    @Query("DELETE FROM picking_list_entries WHERE listId = :id") suspend fun clearList(id: String)
+}
+```
+
+### UX flows
+
+- **Lists index** (`PickingListsScreen`) — `LazyColumn` of list cards showing
+  name, item count, last-modified. FAB creates a new list (alert dialog for
+  name). Swipe-to-dismiss deletes with undo snackbar. Long-press → rename.
+- **Add to list** — from the detail screen and as a swipe action on browse rows,
+  an `AddToListSheet` (modal bottom sheet) shows all lists with a checkmark on
+  those already containing the item. Tap a list to add/remove. "New list" row at
+  the bottom opens a name dialog then adds to the newly created list.
+- **List detail** (`PickingListDetailScreen`) — `LazyColumn` with
+  `ReorderableItem` (e.g. `sh.calvin.reorderable`), swipe-to-dismiss entries,
+  "Clear" menu item with confirm, rename via `TopAppBar` title click.
+- **Export** — share icon on the detail screen generates the PDF via
+  `PdfDocument`, writes to `FileProvider` cache dir, and fires an `ACTION_SEND`
+  intent. PDF filename uses the list name.
+- **Stale entries** — entries whose `assetId` is absent from the local Room
+  `items` table render as a greyed-out placeholder row with a "Remove" button.
 
 ## Background sync
 
@@ -119,12 +180,12 @@ WorkManager.getInstance(ctx).enqueueUniquePeriodicWork(
 
 ## Phase 1 feature list
 
-1. Bottom nav: Browse / Picking List / Settings
+1. Bottom nav: Browse / Picking Lists / Settings
 2. Type filter chips, search bar
 3. Item detail with horizontal pager image gallery, flag badges
 4. Pull-to-refresh + 24 h background sync
 5. Offline image cache via Coil
-6. Picking list CRUD + PDF export via `PdfDocument`
+6. Multiple named picking lists, CRUD + PDF export per list via `PdfDocument`
 7. Settings: base URL, last-synced timestamp, force resync, clear cache
 
 ## Phase 2 — Admin writes (optional)

@@ -38,7 +38,7 @@ The app must work with no network after the first launch.
 ### Local persistence
 
 - **SwiftData** (iOS 17+) for items, images, reports — mirrors JSON shape.
-- `Item`, `ItemImage`, `ItemReport`, `PickingListEntry` as `@Model` classes.
+- `Item`, `ItemImage`, `ItemReport`, `PickingList`, `PickingListEntry` as `@Model` classes.
 - A single `SyncMetadata` model row stores `lastSyncedAt`, `etag`,
   `inventoryHash` (sha256 of last successful payload to short-circuit re-decode).
 
@@ -51,7 +51,8 @@ PTAGProps/
     Item.swift                    // @Model — mirrors inventory.json
     ItemImage.swift
     ItemReport.swift
-    PickingListEntry.swift        // @Model — local-only
+    PickingList.swift             // @Model — named list, local-only
+    PickingListEntry.swift        // @Model — asset ID + position within a list
     SyncMetadata.swift
   Networking/
     InventoryClient.swift         // async fetchItems() with ETag support
@@ -61,12 +62,13 @@ PTAGProps/
     SyncCoordinator.swift         // schedules daily + on-launch sync
   ViewModels/
     InventoryStore.swift          // @Observable
-    PickingListStore.swift        // @Observable, CRUD on PickingListEntry
+    PickingListStore.swift        // @Observable, multi-list CRUD
   Views/
-    ContentView.swift             // TabView: Browse / Picking List / Settings
+    ContentView.swift             // TabView: Browse / Picking Lists / Settings
     BrowseView.swift              // searchable list, type filter
-    ItemDetailView.swift          // gallery, fields, "Add to Picking List"
-    PickingListView.swift         // list of saved entries, share/export
+    ItemDetailView.swift          // gallery, fields, "Add to List…" sheet
+    PickingListsView.swift        // index of all named lists, create/delete/rename
+    PickingListDetailView.swift   // items in one list, reorder, export
     PickingListExportView.swift   // PDF generation (A4, multi-item per page)
     SettingsView.swift            // base URL, last-synced, force resync
   Resources/
@@ -75,22 +77,50 @@ PTAGProps/
 
 ## Picking List feature (app-only)
 
-Local-only list of asset IDs the user wants to pick. Survives app restarts;
-never synced to the server.
+Multiple named lists of asset IDs. All lists persist across app restarts in
+SwiftData and are never synced to the server.
 
-- **Add** — "Add to Picking List" button on `ItemDetailView` and a quick-add
-  swipe action on each row in `BrowseView`.
-- **Manage** — dedicated `PickingListView` tab: reorderable list, swipe-to-
-  remove, "Clear All" with confirm.
-- **Multiple lists (stretch goal)** — name a list ("Act 1 Scene 3"), switch
-  between named lists. Single unnamed list is sufficient for MVP.
-- **Export** — share sheet → "Export PDF" reuses the same A4 layout as the
-  website (image, asset ID, name, location, storage; multiple per page).
-  Generated via `PDFKit` / `UIGraphicsPDFRenderer`.
-- **Storage** — `PickingListEntry { id: UUID, assetId: String, addedAt: Date,
-  listName: String? }`. Resolved against the local `Item` cache at render time
-  so a stale entry whose item was deleted shows a "no longer in inventory"
-  placeholder rather than crashing.
+### Data models
+
+```swift
+@Model final class PickingList {
+    @Attribute(.unique) var id: UUID
+    var name: String                          // e.g. "Act 1 Scene 3"
+    var createdAt: Date
+    var updatedAt: Date
+    @Relationship(deleteRule: .cascade, inverse: \PickingListEntry.list)
+    var entries: [PickingListEntry]
+}
+
+@Model final class PickingListEntry {
+    @Attribute(.unique) var id: UUID
+    var assetId: String
+    var addedAt: Date
+    var position: Int                         // for user-controlled ordering
+    var list: PickingList
+}
+```
+
+### UX flows
+
+- **Lists index** (`PickingListsView`) — shows all saved lists as cards with
+  item count and last-modified date. Toolbar button creates a new named list
+  (inline rename field, defaults to "List \(n)"). Swipe-to-delete a list with
+  confirm. Long-press → rename.
+- **Add to list** — from `ItemDetailView` and as a swipe action on browse rows,
+  a bottom sheet lets the user pick which list to add to (or tap "+ New List" to
+  create one on the spot). If the item is already in a list it is marked with a
+  checkmark; tapping again removes it.
+- **List detail** (`PickingListDetailView`) — reorderable (`List` with
+  `.onMove`), swipe-to-remove per row, "Clear All" with confirm, rename list via
+  navigation title tap.
+- **Export** — toolbar share button on `PickingListDetailView` → "Export PDF".
+  Generated via `PDFKit` / `UIGraphicsPDFRenderer` in the same A4 two-column
+  layout as the website (image, asset ID, name, location, storage; ~8 items per
+  page). PDF filename includes the list name.
+- **Stale entries** — entries whose `assetId` can no longer be found in the
+  local `Item` store show a "no longer in inventory" placeholder row with a
+  "Remove" button.
 
 ## Data model (Item.swift)
 
@@ -117,12 +147,12 @@ and unresolved reports onto items, then upsert into SwiftData by `id`.
 
 ## Phase 1 feature list
 
-1. Tab bar: Browse / Picking List / Settings
+1. Tab bar: Browse / Picking Lists / Settings
 2. Type filter (All / Props / Furniture / Costumes), searchable
 3. Item detail with image gallery, flag badges (missing/broken)
 4. Pull-to-refresh + background daily sync
 5. Offline image cache; placeholder when an image hasn't been prefetched yet
-6. Picking List CRUD + PDF export
+6. Multiple named picking lists, CRUD + PDF export per list
 7. Settings: base URL, "last synced X minutes ago", force resync, clear cache
 
 ## Phase 2 — Admin writes (optional)
